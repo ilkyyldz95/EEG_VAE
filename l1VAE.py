@@ -8,10 +8,34 @@ import torch.utils.data
 from torch import nn, optim
 import os
 import time
-from skimage import io
+from mne.io import RawArray, read_raw_edf
+from os import listdir
+from os.path import isfile, join
+
+modality = "rodent_eeg"
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(' Processor is %s' % (device))
+
+# Load all EEG data
+input_dir = "../{}".format(modality)
+EEG_files = [join(input_dir, f) for f in listdir(input_dir) if isfile(join(input_dir, f)) and (".edf" in f)]
+print("{} EEG files found for modality {}".format(len(EEG_files), modality))
+
+all_eegs = []
+all_files = []
+for file_name in EEG_files:
+        tmp = read_raw_edf(file_name, preload=True)
+        # Convert the read data to pandas DataFrame data format
+        tmp = tmp.to_data_frame()
+        # convert to numpy's unique data format
+        current_eeg = tmp.values
+        all_eegs.append(current_eeg)
+        all_files.append(file_name)
+all_eegs = np.array(all_eegs)
+print("All EEGs initial load shape:", all_eegs.shape)
+
+"""
 # VAE model parameters for the encoder
 img_size= 240 * 320
 h_layer_1 = 32
@@ -178,3 +202,4 @@ def plot_reconstruction():
         #io.imsave((save_PATH + '/imageRec%06d_l%2d'%(indx+1, latent_dim) + '.jpg'), img_i)
     time_end = time.time()
     print('elapsed time (min) : %0.2f' % ((time_end-time_start)/60))
+"""
