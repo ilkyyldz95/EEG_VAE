@@ -8,36 +8,52 @@ import torch.utils.data
 from torch import nn, optim
 import os
 import time
-from mne.io import RawArray, read_raw_edf
 from os import listdir
 from os.path import isfile, join
 
-modality = "rodent_eeg"
+modality = "rodent_sleep_eeg"
+img_size = 240 * 320
+
+def extract_windows_vectorized(array, sub_window_size, downsample_factor=2, overlap_factor=0.5):
+    # create sliding windows of size sub_window_size, downsampling by downsample_factor, and overlapping by overlap_factor percent
+    sub_windows = (
+        # expand_dims are used to convert a 1D array to 2D array.
+        np.expand_dims(np.arange(0, sub_window_size * downsample_factor, downsample_factor), 0) +
+        np.expand_dims(np.arange(0, array.shape[-1] - sub_window_size * downsample_factor + 1,
+                                 int((1-overlap_factor) * sub_window_size * downsample_factor)), 0).T)
+    return array[sub_windows]
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(' Processor is %s' % (device))
 
 # Load all EEG data
-input_dir = "../{}".format(modality)
-EEG_files = [join(input_dir, f) for f in listdir(input_dir) if isfile(join(input_dir, f)) and (".edf" in f)]
-print("{} EEG files found for modality {}".format(len(EEG_files), modality))
+with open('{}_preprocessed_eegs.pickle'.format(modality), 'rb') as handle:
+    all_eggs = pickle.load(handle)
+with open('{}_all_eeg_files.pickle'.format(modality), 'rb') as handle:
+    all_files = pickle.load(handle)
 
-all_eegs = []
-all_files = []
-for file_name in EEG_files:
-        tmp = read_raw_edf(file_name, preload=True)
-        # Convert the read data to pandas DataFrame data format
-        tmp = tmp.to_data_frame()
-        # convert to numpy's unique data format
-        current_eeg = tmp.values
-        all_eegs.append(current_eeg)
-        all_files.append(file_name)
-all_eegs = np.array(all_eegs)
-print("All EEGs initial load shape:", all_eegs.shape)
+# Extract overlapping sliding windows for each channel
+all_prep_eegs = []
+all_prep_files = []
+n_channels = np.min([len(signal) for signal in all_eggs])
+sub_window_size = int(img_size / n_channels)
+for file_name, signal in zip(all_files, all_eggs):
+    print("Input signal shape:", signal.shape)
+    # signal shape: channels x time points
+    current_signals = []
+    for channel_index in range(n_channels):
+        signal_per_channel_sliding = extract_windows_vectorized(signal[channel_index], sub_window_size)
+        current_signals.append(signal_per_channel_sliding)
+    # batch x channels x time points
+    current_signals = np.array(current_signals).reshape((1, 0, 2))
+    current_file_names = np.tile([file_name], (len(current_signals),))
+    print("Sliding output signal shape:", current_signals.shape)
+    all_prep_eegs.extend(current_signals)
+    all_prep_files.extend(current_file_names)
+# batch x channels x time points
+all_prep_eegs = np.array(all_prep_eegs)
 
-"""
 # VAE model parameters for the encoder
-img_size= 240 * 320
 h_layer_1 = 32
 h_layer_2 = 64
 h_layer_3 = 128
@@ -53,17 +69,16 @@ feature_col = 18
 # VAE training parameters
 batch_size = 140
 epoch_num = 200
-
 beta = 0.8
 
-vidNumber = 4
+#########################################
+# Save folders for trained models and logs
+model_save_path = "model.pth.tar"
+model_save_dir = "models_{}".format(modality)
+if not os.path.isdir(model_save_dir):
+    os.mkdir(model_save_dir)
 
-#Path parameters
-save_PATH = './Result/BMC2012/Video_%03d' % vidNumber
-if not os.path.exists(save_PATH):
-    os.makedirs(save_PATH)
-
-PATH_vae = save_PATH + '/betaVAE_BMC2012_Vid-%03d-%2d' % (vidNumber, latent_dim)
+PATH_vae = model_save_dir + '/betaVAE_%2d' % (latent_dim)
 # Restore
 Restore = True
 
@@ -202,4 +217,3 @@ def plot_reconstruction():
         #io.imsave((save_PATH + '/imageRec%06d_l%2d'%(indx+1, latent_dim) + '.jpg'), img_i)
     time_end = time.time()
     print('elapsed time (min) : %0.2f' % ((time_end-time_start)/60))
-"""
