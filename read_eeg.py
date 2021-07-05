@@ -38,10 +38,7 @@ print("{} EEG files found for modality {}".format(len(EEG_files), modality))
 all_eegs = []
 all_files = []
 for file_name in EEG_files:
-    if "br_raw" in file_name:
-        tmp = read_raw_edf(file_name)
-    else:
-        tmp = read_raw_edf(file_name, preload=True)
+    tmp = read_raw_edf(file_name, preload=True)
     # Convert the read data to pandas DataFrame data format
     tmp = tmp.to_data_frame()
     # convert to numpy's unique data format, each signal may have a different length!

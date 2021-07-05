@@ -11,7 +11,7 @@ import time
 from os import listdir
 from os.path import isfile, join
 
-modality = "rodent_sleep_eeg"
+modality = "rodent"
 img_size = 240 * 320
 
 def extract_windows_vectorized(array, sub_window_size, downsample_factor=2, overlap_factor=0.5):
@@ -26,18 +26,18 @@ def extract_windows_vectorized(array, sub_window_size, downsample_factor=2, over
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(' Processor is %s' % (device))
 
-# Load all EEG data
-with open('{}_preprocessed_eegs.pickle'.format(modality), 'rb') as handle:
-    all_eggs = pickle.load(handle)
-with open('{}_all_eeg_files.pickle'.format(modality), 'rb') as handle:
-    all_files = pickle.load(handle)
+# Load train EEG data
+with open('{}_sleep_eeg_preprocessed_eegs.pickle'.format(modality), 'rb') as handle:
+    train_eggs = pickle.load(handle)
+with open('{}_sleep_eeg_all_eeg_files.pickle'.format(modality), 'rb') as handle:
+    train_files = pickle.load(handle)
 
 # Extract overlapping sliding windows for each channel
-all_prep_eegs = []
-all_prep_files = []
-n_channels = np.min([len(signal) for signal in all_eggs])
+train_prep_eegs = []
+train_prep_files = []
+n_channels = np.min([len(signal) for signal in train_eggs])
 sub_window_size = int(img_size / n_channels)
-for file_name, signal in zip(all_files, all_eggs):
+for file_name, signal in zip(train_files, train_eggs):
     print("Input signal shape:", signal.shape)
     # signal shape: channels x time points
     current_signals = []
@@ -48,10 +48,37 @@ for file_name, signal in zip(all_files, all_eggs):
     current_signals = np.array(current_signals).reshape((1, 0, 2))
     current_file_names = np.tile([file_name], (len(current_signals),))
     print("Sliding output signal shape:", current_signals.shape)
-    all_prep_eegs.extend(current_signals)
-    all_prep_files.extend(current_file_names)
+    train_prep_eegs.extend(current_signals)
+    train_prep_files.extend(current_file_names)
 # batch x channels x time points
-all_prep_eegs = np.array(all_prep_eegs)
+train_prep_eegs = np.array(train_prep_eegs)
+
+# Load test EEG data
+with open('{}_eeg_preprocessed_eegs.pickle'.format(modality), 'rb') as handle:
+    test_eggs = pickle.load(handle)
+with open('{}_eeg_all_eeg_files.pickle'.format(modality), 'rb') as handle:
+    test_files = pickle.load(handle)
+
+# Extract overlapping sliding windows for each channel
+test_prep_eegs = []
+test_prep_files = []
+n_channels = np.min([len(signal) for signal in test_eggs])
+sub_window_size = int(img_size / n_channels)
+for file_name, signal in zip(test_files, test_eggs):
+    print("Input signal shape:", signal.shape)
+    # signal shape: channels x time points
+    current_signals = []
+    for channel_index in range(n_channels):
+        signal_per_channel_sliding = extract_windows_vectorized(signal[channel_index], sub_window_size)
+        current_signals.append(signal_per_channel_sliding)
+    # batch x channels x time points
+    current_signals = np.array(current_signals).reshape((1, 0, 2))
+    current_file_names = np.tile([file_name], (len(current_signals),))
+    print("Sliding output signal shape:", current_signals.shape)
+    test_prep_eegs.extend(current_signals)
+    test_prep_files.extend(current_file_names)
+# batch x channels x time points
+test_prep_eegs = np.array(test_prep_eegs)
 
 # VAE model parameters for the encoder
 h_layer_1 = 32
@@ -71,28 +98,29 @@ batch_size = 140
 epoch_num = 200
 beta = 0.8
 
-#########################################
 # Save folders for trained models and logs
-model_save_path = "model.pth.tar"
 model_save_dir = "models_{}".format(modality)
 if not os.path.isdir(model_save_dir):
     os.mkdir(model_save_dir)
-
 PATH_vae = model_save_dir + '/betaVAE_%2d' % (latent_dim)
-# Restore
 Restore = True
 
-# load  Dataset
-imgs = np.load('../Data/Video_%03d/BMC2012_%03d.npy' % (vidNumber, vidNumber))
-imgs /= 256
-nSample, ch,  x, y = imgs.shape
-imgs = torch.FloatTensor(imgs)
-train_loader = torch.utils.data.DataLoader(imgs, batch_size=batch_size, shuffle=True)
+# load  Dataset via min-max normalization
+MIN_VAL = np.min(train_prep_eegs)
+MAX_VAL = np.max(train_prep_eegs)
+train_imgs = (train_prep_eegs - MIN_VAL) / (MAX_VAL - MIN_VAL)
+test_imgs = (test_prep_eegs - MIN_VAL) / (MAX_VAL - MIN_VAL)
+print("Range of input images of VAE:", np.min(train_imgs), np.max(train_imgs))
+train_imgs = torch.FloatTensor(train_imgs)
+test_imgs = torch.FloatTensor(test_imgs)
+
+# train with all signals
+train_loader = torch.utils.data.DataLoader(train_imgs, batch_size=batch_size, shuffle=True)
+test_loader = torch.utils.data.DataLoader(test_imgs, batch_size=batch_size)
 
 class VAE(nn.Module):
     def __init__(self):
         super(VAE, self).__init__()
-        #.unsqueeze(0)
         self.econv1 = nn.Conv2d(3, h_layer_1, kernel_size=kernel_size, stride=stride)
         self.ebn1 = nn.BatchNorm2d(h_layer_1, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
         self.econv2 = nn.Conv2d(h_layer_1, h_layer_2, kernel_size=kernel_size, stride=stride)
@@ -179,7 +207,6 @@ if Restore == False:
             data = data
             data = Variable(data)
             data_vae = data.to(device)
-            #data_vae=data #if using gpu comment this line!
             vae_optimizer.zero_grad()
             recon_x, mu_z, logvar_z, z = vae.forward(data_vae)
             loss_vae = elbo_loss(recon_x, data_vae, mu_z, logvar_z)
@@ -200,20 +227,19 @@ if Restore:
 def plot_reconstruction():
     
     time_start = time.time()
-    for indx in range(nSample):
+    for indx in range(len(test_imgs)):
     # Select images
 
-        img = imgs[indx]
+        img = test_imgs[indx]
         img_variable = Variable(torch.FloatTensor(img))
         img_variable = img_variable.unsqueeze(0)
         img_variable = img_variable.to(device)
-        imgs_z_mu, imgs_z_logvar = vae.Encoder(img_variable)
-        imgs_z = vae.Reparam(imgs_z_mu, imgs_z_logvar)
-        imgs_rec = vae.Decoder(imgs_z).cpu()
-        imgs_rec = imgs_rec.data.numpy()
-        img_i = imgs_rec[0]
+        test_imgs_z_mu, test_imgs_z_logvar = vae.Encoder(img_variable)
+        test_imgs_z = vae.Reparam(test_imgs_z_mu, test_imgs_z_logvar)
+        test_imgs_rec = vae.Decoder(test_imgs_z).cpu()
+        test_imgs_rec = test_imgs_rec.data.numpy()
+        img_i = test_imgs_rec[0]
         img_i = img_i.transpose(1,0)
-        img_i = img_i.reshape(x, y, 3)
-        #io.imsave((save_PATH + '/imageRec%06d_l%2d'%(indx+1, latent_dim) + '.jpg'), img_i)
+        img_i = img_i.reshape(n_channels, sub_window_size, 3)
     time_end = time.time()
     print('elapsed time (min) : %0.2f' % ((time_end-time_start)/60))
