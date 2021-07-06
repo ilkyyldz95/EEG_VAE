@@ -243,3 +243,6 @@ def plot_reconstruction():
         img_i = img_i.reshape(n_channels, sub_window_size, 3)
     time_end = time.time()
     print('elapsed time (min) : %0.2f' % ((time_end-time_start)/60))
+
+if Restore:
+    plot_reconstruction()
