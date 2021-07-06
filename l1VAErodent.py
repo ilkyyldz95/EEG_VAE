@@ -8,9 +8,14 @@ import torch.utils.data
 from torch import nn, optim
 import os
 import time
+import pickle
 
+Restore = False
 modality = "rodent"
 img_size = 240 * 320
+n_channels = 10
+sub_window_size = int(img_size / n_channels)
+print("{} channels with window size {}".format(n_channels, sub_window_size))
 
 def extract_windows_vectorized(array, sub_window_size, downsample_factor=2, overlap_factor=0.5):
     # create sliding windows of size sub_window_size, downsampling by downsample_factor, and overlapping by overlap_factor percent
@@ -21,12 +26,9 @@ def extract_windows_vectorized(array, sub_window_size, downsample_factor=2, over
                                  int((1-overlap_factor) * sub_window_size * downsample_factor)), 0).T)
     return array[sub_windows]
 
-def apply_sliding_window(files, eegs, img_size):
+def apply_sliding_window(files, eegs):
     prep_eegs = []
     prep_files = []
-    n_channels = np.min([len(signal) for signal in eegs])
-    sub_window_size = int(img_size / n_channels)
-    print("{} channels with window size {}".format(n_channels, sub_window_size))
     for file_name, signal in zip(files, eegs):
         # signal shape: channels x time points
         print("Input signal shape:", signal.shape)
@@ -35,15 +37,15 @@ def apply_sliding_window(files, eegs, img_size):
             signal_per_channel_sliding = extract_windows_vectorized(signal[channel_index], sub_window_size)
             current_signals.append(signal_per_channel_sliding)
         # batch x channels x time points
-        current_signals = np.array(current_signals).reshape((1, 0, 2))
+        current_signals = np.array(current_signals).transpose((1, 0, 2))
         current_file_names = np.tile([file_name], (len(current_signals),))
         print("Sliding output signal shape:", current_signals.shape)
-        print("Sliding output file names shape:", current_file_names.shape)
+        print("Range of unnormalized image:", np.min(current_signals), np.max(current_signals))
         prep_eegs.extend(current_signals)
         prep_files.extend(current_file_names)
     prep_eegs = np.array(prep_eegs)
     prep_files = np.array(prep_files)
-    return prep_eegs, prep_files, n_channels, sub_window_size
+    return prep_eegs, prep_files
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(' Processor is %s' % (device))
@@ -53,16 +55,14 @@ with open('{}_sleep_eeg_preprocessed_eegs.pickle'.format(modality), 'rb') as han
     train_eegs = pickle.load(handle)
 with open('{}_sleep_eeg_all_eeg_files.pickle'.format(modality), 'rb') as handle:
     train_files = pickle.load(handle)
-train_prep_eegs, train_prep_files, n_channels, sub_window_size = \
-    apply_sliding_window(train_files, train_eegs, img_size)
+train_prep_eegs, train_prep_files = apply_sliding_window(train_files, train_eegs)
 
 # Load test EEG data
 with open('{}_eeg_preprocessed_eegs.pickle'.format(modality), 'rb') as handle:
     test_eegs = pickle.load(handle)
 with open('{}_eeg_all_eeg_files.pickle'.format(modality), 'rb') as handle:
     test_files = pickle.load(handle)
-test_prep_eegs, test_prep_files, n_channels, sub_window_size = \
-    apply_sliding_window(train_files, train_eegs, img_size)
+test_prep_eegs, test_prep_files = apply_sliding_window(test_files, test_eegs)
 
 # VAE model parameters for the encoder
 h_layer_1 = 32
@@ -90,12 +90,11 @@ PATH_vae = model_save_dir + '/betaVAE_%2d' % (latent_dim)
 results_save_dir = "results_{}".format(modality)
 if not os.path.isdir(results_save_dir):
     os.mkdir(results_save_dir)
-Restore = True
 
 # load dataset via min-max normalization
-train_imgs = (train_prep_eegs - np.min(train_prep_eegs)) / (np.max(train_prep_eegs) - np.min(train_prep_eegs))
-test_imgs = (test_prep_eegs - np.min(test_prep_eegs)) / (np.max(test_prep_eegs) - np.min(test_prep_eegs))
-print("Range of input images of VAE:", np.min(train_imgs), np.max(train_imgs))
+train_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img)) for img in train_prep_eegs])
+test_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img)) for img in test_prep_eegs])
+print("Range of normalized images of VAE:", np.min(train_imgs), np.max(train_imgs))
 train_imgs = torch.FloatTensor(train_imgs)
 test_imgs = torch.FloatTensor(test_imgs)
 

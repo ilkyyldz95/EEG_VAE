@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import pickle
 from scipy.signal import butter, lfilter, freqz
 
-modality = "rodent_eeg"
+modality = "rodent_eeg"  # staba and monash
 fs = 2000.0
 lowcut = 0.5
 highcut = 50.0
@@ -32,7 +32,8 @@ def butter_bandpass_filter(data, lowcut, highcut, fs, order=5):
 
 # Read all EEG data
 input_dir = "../{}".format(modality)
-EEG_files = [join(input_dir, f) for f in listdir(input_dir) if isfile(join(input_dir, f)) and (".edf" in f)]
+EEG_files = [join(input_dir, f) for f in listdir(input_dir) if isfile(join(input_dir, f)) and
+             (".edf" in f or ".EDF" in f)]
 print("{} EEG files found for modality {}".format(len(EEG_files), modality))
 
 all_eegs = []
@@ -46,6 +47,7 @@ for file_name in EEG_files:
     current_eeg = tmp.values.T
     all_eegs.append(current_eeg)
     all_files.append(file_name)
+    print("Number of channels: ", len(current_eeg))
 
 # Save raw EEG data
 with open('{}_all_raw_eegs.pickle'.format(modality), 'wb') as handle:
