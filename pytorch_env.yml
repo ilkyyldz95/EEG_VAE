@@ -7,8 +7,8 @@ channels:
 dependencies:
   - _libgcc_mutex=0.1=main
   - blas=1.0=mkl
-  - ca-certificates=2020.10.14=0
-  - certifi=2020.6.20=py36_0
+  - ca-certificates=2021.5.30=ha878542_0
+  - certifi=2021.5.30=py36h5fab9bb_0
   - cudatoolkit=10.1.243=h6bb024c_0
   - cycler=0.10.0=py_2
   - dataclasses=0.8=pyh4f3eec9_6
@@ -93,7 +93,6 @@ dependencies:
     - nibabel==3.2.1
     - packaging==20.9
     - simpleitk==1.2.4
-    - torchio==0.18.40
     - tqdm==4.61.1
     - wrapt==1.12.1
     - zipp==3.4.1

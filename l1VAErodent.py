@@ -8,8 +8,6 @@ import torch.utils.data
 from torch import nn, optim
 import os
 import time
-from os import listdir
-from os.path import isfile, join
 
 modality = "rodent"
 img_size = 240 * 320
@@ -23,62 +21,48 @@ def extract_windows_vectorized(array, sub_window_size, downsample_factor=2, over
                                  int((1-overlap_factor) * sub_window_size * downsample_factor)), 0).T)
     return array[sub_windows]
 
+def apply_sliding_window(files, eegs, img_size):
+    prep_eegs = []
+    prep_files = []
+    n_channels = np.min([len(signal) for signal in eegs])
+    sub_window_size = int(img_size / n_channels)
+    print("{} channels with window size {}".format(n_channels, sub_window_size))
+    for file_name, signal in zip(files, eegs):
+        # signal shape: channels x time points
+        print("Input signal shape:", signal.shape)
+        current_signals = []
+        for channel_index in range(n_channels):
+            signal_per_channel_sliding = extract_windows_vectorized(signal[channel_index], sub_window_size)
+            current_signals.append(signal_per_channel_sliding)
+        # batch x channels x time points
+        current_signals = np.array(current_signals).reshape((1, 0, 2))
+        current_file_names = np.tile([file_name], (len(current_signals),))
+        print("Sliding output signal shape:", current_signals.shape)
+        print("Sliding output file names shape:", current_file_names.shape)
+        prep_eegs.extend(current_signals)
+        prep_files.extend(current_file_names)
+    prep_eegs = np.array(prep_eegs)
+    prep_files = np.array(prep_files)
+    return prep_eegs, prep_files, n_channels, sub_window_size
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(' Processor is %s' % (device))
 
-# Load train EEG data
+# Load train EEG data with overlapping sliding windows
 with open('{}_sleep_eeg_preprocessed_eegs.pickle'.format(modality), 'rb') as handle:
-    train_eggs = pickle.load(handle)
+    train_eegs = pickle.load(handle)
 with open('{}_sleep_eeg_all_eeg_files.pickle'.format(modality), 'rb') as handle:
     train_files = pickle.load(handle)
-
-# Extract overlapping sliding windows for each channel
-train_prep_eegs = []
-train_prep_files = []
-n_channels = np.min([len(signal) for signal in train_eggs])
-sub_window_size = int(img_size / n_channels)
-for file_name, signal in zip(train_files, train_eggs):
-    print("Input signal shape:", signal.shape)
-    # signal shape: channels x time points
-    current_signals = []
-    for channel_index in range(n_channels):
-        signal_per_channel_sliding = extract_windows_vectorized(signal[channel_index], sub_window_size)
-        current_signals.append(signal_per_channel_sliding)
-    # batch x channels x time points
-    current_signals = np.array(current_signals).reshape((1, 0, 2))
-    current_file_names = np.tile([file_name], (len(current_signals),))
-    print("Sliding output signal shape:", current_signals.shape)
-    train_prep_eegs.extend(current_signals)
-    train_prep_files.extend(current_file_names)
-# batch x channels x time points
-train_prep_eegs = np.array(train_prep_eegs)
+train_prep_eegs, train_prep_files, n_channels, sub_window_size = \
+    apply_sliding_window(train_files, train_eegs, img_size)
 
 # Load test EEG data
 with open('{}_eeg_preprocessed_eegs.pickle'.format(modality), 'rb') as handle:
-    test_eggs = pickle.load(handle)
+    test_eegs = pickle.load(handle)
 with open('{}_eeg_all_eeg_files.pickle'.format(modality), 'rb') as handle:
     test_files = pickle.load(handle)
-
-# Extract overlapping sliding windows for each channel
-test_prep_eegs = []
-test_prep_files = []
-n_channels = np.min([len(signal) for signal in test_eggs])
-sub_window_size = int(img_size / n_channels)
-for file_name, signal in zip(test_files, test_eggs):
-    print("Input signal shape:", signal.shape)
-    # signal shape: channels x time points
-    current_signals = []
-    for channel_index in range(n_channels):
-        signal_per_channel_sliding = extract_windows_vectorized(signal[channel_index], sub_window_size)
-        current_signals.append(signal_per_channel_sliding)
-    # batch x channels x time points
-    current_signals = np.array(current_signals).reshape((1, 0, 2))
-    current_file_names = np.tile([file_name], (len(current_signals),))
-    print("Sliding output signal shape:", current_signals.shape)
-    test_prep_eegs.extend(current_signals)
-    test_prep_files.extend(current_file_names)
-# batch x channels x time points
-test_prep_eegs = np.array(test_prep_eegs)
+test_prep_eegs, test_prep_files, n_channels, sub_window_size = \
+    apply_sliding_window(train_files, train_eegs, img_size)
 
 # VAE model parameters for the encoder
 h_layer_1 = 32
@@ -103,13 +87,14 @@ model_save_dir = "models_{}".format(modality)
 if not os.path.isdir(model_save_dir):
     os.mkdir(model_save_dir)
 PATH_vae = model_save_dir + '/betaVAE_%2d' % (latent_dim)
+results_save_dir = "results_{}".format(modality)
+if not os.path.isdir(results_save_dir):
+    os.mkdir(results_save_dir)
 Restore = True
 
-# load  Dataset via min-max normalization
-MIN_VAL = np.min(train_prep_eegs)
-MAX_VAL = np.max(train_prep_eegs)
-train_imgs = (train_prep_eegs - MIN_VAL) / (MAX_VAL - MIN_VAL)
-test_imgs = (test_prep_eegs - MIN_VAL) / (MAX_VAL - MIN_VAL)
+# load dataset via min-max normalization
+train_imgs = (train_prep_eegs - np.min(train_prep_eegs)) / (np.max(train_prep_eegs) - np.min(train_prep_eegs))
+test_imgs = (test_prep_eegs - np.min(test_prep_eegs)) / (np.max(test_prep_eegs) - np.min(test_prep_eegs))
 print("Range of input images of VAE:", np.min(train_imgs), np.max(train_imgs))
 train_imgs = torch.FloatTensor(train_imgs)
 test_imgs = torch.FloatTensor(test_imgs)
@@ -121,7 +106,7 @@ test_loader = torch.utils.data.DataLoader(test_imgs, batch_size=batch_size)
 class VAE(nn.Module):
     def __init__(self):
         super(VAE, self).__init__()
-        self.econv1 = nn.Conv2d(3, h_layer_1, kernel_size=kernel_size, stride=stride)
+        self.econv1 = nn.Conv2d(1, h_layer_1, kernel_size=kernel_size, stride=stride)
         self.ebn1 = nn.BatchNorm2d(h_layer_1, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
         self.econv2 = nn.Conv2d(h_layer_1, h_layer_2, kernel_size=kernel_size, stride=stride)
         self.ebn2 = nn.BatchNorm2d(h_layer_2, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
@@ -130,20 +115,20 @@ class VAE(nn.Module):
         self.econv4 = nn.Conv2d(h_layer_3, h_layer_4, kernel_size=kernel_size, stride=stride)
         self.ebn4 = nn.BatchNorm2d(h_layer_4, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
         self.efc1  = nn.Linear(h_layer_4 * 13 * 18, h_layer_5)
-        self.edrop1 = nn.Dropout(p = 0.3, inplace = False)
+        self.edrop1 = nn.Dropout(p=0.3, inplace = False)
         self.mu_z  = nn.Linear(h_layer_5, latent_dim)
         self.logvar_z = nn.Linear(h_layer_5, latent_dim)
         #
         self.dfc1 = nn.Linear(latent_dim, h_layer_5)
         self.dfc2 = nn.Linear(h_layer_5, h_layer_4 * 13 * 18)
-        self.ddrop1 = nn.Dropout(p = 0.3, inplace = False)
+        self.ddrop1 = nn.Dropout(p=0.3, inplace = False)
         self.dconv1 = nn.ConvTranspose2d(h_layer_4, h_layer_3, kernel_size=kernel_size, stride=stride, padding = 0, output_padding = 0)
         self.dbn1 = nn.BatchNorm2d(h_layer_3, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
         self.dconv2 = nn.ConvTranspose2d(h_layer_3, h_layer_2, kernel_size=kernel_size, stride=stride, padding = 0, output_padding = 0)
         self.dbn2 = nn.BatchNorm2d(h_layer_2, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
         self.dconv3 = nn.ConvTranspose2d(h_layer_2, h_layer_1, kernel_size=kernel_size, stride=stride, padding = 0, output_padding = 1)
         self.dbn3 = nn.BatchNorm2d(h_layer_1, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
-        self.dconv4 = nn.ConvTranspose2d(h_layer_1, 3, kernel_size=kernel_size, padding = 0, stride=stride)
+        self.dconv4 = nn.ConvTranspose2d(h_layer_1, 1, kernel_size=kernel_size, padding = 0, stride=stride)
 
         #
         self.sigmoid = nn.Sigmoid()
@@ -173,7 +158,7 @@ class VAE(nn.Module):
         dh3 = self.relu(self.dbn1(self.dconv1(dh2.view(-1, h_layer_4, 13, 18))))
         dh4 = self.relu(self.dbn2(self.dconv2(dh3)))
         dh5 = self.relu(self.dbn3(self.dconv3(dh4)))
-        x = self.dconv4(dh5).view(-1, 3, img_size)
+        x = self.dconv4(dh5).view(-1, 1, img_size)
         return self.sigmoid(x)
 
     def forward(self, x):
@@ -184,13 +169,13 @@ class VAE(nn.Module):
 # initialize model
 vae = VAE()
 vae.to(device)
-vae_optimizer = optim.Adam(vae.parameters(), lr = 1e-3)
+vae_optimizer = optim.Adam(vae.parameters(), lr=1e-3)
 
 # loss function
 SparsityLoss = nn.L1Loss(size_average = False, reduce = True)
 def elbo_loss(recon_x, x, mu_z, logvar_z):
 
-    L1loss = SparsityLoss(recon_x, x.view(-1, 3, img_size))
+    L1loss = SparsityLoss(recon_x, x.view(-1, 1, img_size))
     KLD = -0.5 * beta * torch.sum(1 + logvar_z - mu_z.pow(2) - logvar_z.exp())
 
     return L1loss + KLD
@@ -225,24 +210,33 @@ if Restore:
     vae.load_state_dict(torch.load(PATH_vae, map_location=lambda storage, loc: storage))
 
 def plot_reconstruction():
-    
-    time_start = time.time()
-    for indx in range(len(test_imgs)):
-    # Select images
-
-        img = test_imgs[indx]
+    idx = -1
+    file_name_prev = test_prep_files[0]
+    for file_name, img in zip(test_prep_files, test_prep_eegs):
+        # counter for sliding windows over the same file
+        if file_name_prev == file_name:
+            idx += 1
+        else:
+            idx = 0
         img_variable = Variable(torch.FloatTensor(img))
         img_variable = img_variable.unsqueeze(0)
         img_variable = img_variable.to(device)
         test_imgs_z_mu, test_imgs_z_logvar = vae.Encoder(img_variable)
         test_imgs_z = vae.Reparam(test_imgs_z_mu, test_imgs_z_logvar)
         test_imgs_rec = vae.Decoder(test_imgs_z).cpu()
-        test_imgs_rec = test_imgs_rec.data.numpy()
-        img_i = test_imgs_rec[0]
-        img_i = img_i.transpose(1,0)
-        img_i = img_i.reshape(n_channels, sub_window_size, 3)
-    time_end = time.time()
-    print('elapsed time (min) : %0.2f' % ((time_end-time_start)/60))
+        # Use negative reconstruction probability as anomaly score
+        test_imgs_rec = 1 - test_imgs_rec.data.numpy()
+        img_i = test_imgs_rec[0].reshape(n_channels, sub_window_size)
+        # Save input image and detected anomaly
+        plt.figure()
+        plt.imshow(img)
+        plt.savefig(results_save_dir + '/{}_{}.jpg'.format(file_name, idx), bbox_inches='tight')
+        plt.close()
+        plt.figure()
+        plt.imshow(img_i)
+        plt.savefig(results_save_dir + '/Rec_l_{}_{}_{}.jpg'.format(latent_dim, file_name, idx), bbox_inches='tight')
+        plt.close()
+        file_name_prev = file_name
 
 if Restore:
     plot_reconstruction()
