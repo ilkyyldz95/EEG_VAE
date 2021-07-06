@@ -40,7 +40,6 @@ def apply_sliding_window(files, eegs):
         current_signals = np.array(current_signals).transpose((1, 0, 2))
         current_file_names = np.tile([file_name], (len(current_signals),))
         print("Sliding output signal shape:", current_signals.shape)
-        print("Range of unnormalized image:", np.min(current_signals), np.max(current_signals))
         prep_eegs.extend(current_signals)
         prep_files.extend(current_file_names)
     prep_eegs = np.array(prep_eegs)
@@ -91,9 +90,11 @@ results_save_dir = "results_{}".format(modality)
 if not os.path.isdir(results_save_dir):
     os.mkdir(results_save_dir)
 
-# load dataset via min-max normalization
-train_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img)) for img in train_prep_eegs])
-test_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img)) for img in test_prep_eegs])
+# load dataset via min-max normalization & add channel dimension
+train_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))[:, np.newaxis, :, :]
+                       for img in train_prep_eegs])
+test_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))[:, np.newaxis, :, :]
+                      for img in test_prep_eegs])
 print("Range of normalized images of VAE:", np.min(train_imgs), np.max(train_imgs))
 train_imgs = torch.FloatTensor(train_imgs)
 test_imgs = torch.FloatTensor(test_imgs)

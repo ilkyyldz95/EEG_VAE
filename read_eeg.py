@@ -16,7 +16,7 @@ fs = 2000.0
 lowcut = 0.5
 highcut = 50.0
 
-def butter_bandpass(lowcut, highcut, fs, order=5):
+def butter_bandpass(lowcut, highcut, fs, order=4):
     nyq = 0.5 * fs
     low = lowcut / nyq
     high = highcut / nyq
@@ -24,7 +24,7 @@ def butter_bandpass(lowcut, highcut, fs, order=5):
     return b, a
 
 
-def butter_bandpass_filter(data, lowcut, highcut, fs, order=5):
+def butter_bandpass_filter(data, lowcut, highcut, fs, order=4):
     b, a = butter_bandpass(lowcut, highcut, fs, order=order)
     y = lfilter(b, a, data)
     return y
@@ -59,6 +59,16 @@ with open('{}_all_eeg_files.pickle'.format(modality), 'wb') as handle:
 prep_eegs = []
 for signal in all_eegs:
     y = butter_bandpass_filter(signal, lowcut, highcut, fs)
+    # check filtering success
+    #n = len(y)  # length of the signal
+    #k = np.arange(n)
+    #T = n / fs
+    #frq = k / T  # two sides frequency range
+    #frq = frq[:len(frq) // 2]  # one side frequency range
+    #Y = np.fft.fft(y) / n  # dft and normalization
+    #Y = np.abs(Y[:n // 2])
+    #print("Output Frequencies:", frq)
+    #print("Output Amplitudes:", Y)
     prep_eegs.append(y)
     print("{} signals filtered".format(len(prep_eegs)))
 
