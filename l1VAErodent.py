@@ -56,7 +56,7 @@ print(' Processor is %s' % (device))
 h_layer_1 = 8
 h_layer_2 = 16
 h_layer_5 = 1000
-latent_dim = 32
+latent_dim = 16
 kernel_size = (4, 4)
 stride = 1
 
@@ -121,6 +121,25 @@ class VAE(nn.Module):
         #
         self.sigmoid = nn.Sigmoid()
         self.relu = nn.LeakyReLU()
+        # initialize weights
+        torch.nn.init.xavier_uniform_(self.econv1.weight)
+        self.econv1.bias.data.fill_(0.01)
+        torch.nn.init.xavier_uniform_(self.econv2.weight)
+        self.econv2.bias.data.fill_(0.01)
+        torch.nn.init.xavier_uniform_(self.efc1.weight)
+        self.efc1.bias.data.fill_(0.01)
+        torch.nn.init.xavier_uniform_(self.mu_z.weight)
+        self.mu_z.bias.data.fill_(0.01)
+        torch.nn.init.xavier_uniform_(self.logvar_z.weight)
+        self.logvar_z.bias.data.fill_(0.01)
+        torch.nn.init.xavier_uniform_(self.dfc1.weight)
+        self.dfc1.bias.data.fill_(0.01)
+        torch.nn.init.xavier_uniform_(self.dfc2.weight)
+        self.dfc2.bias.data.fill_(0.01)
+        torch.nn.init.xavier_uniform_(self.dconv3.weight)
+        self.dconv3.bias.data.fill_(0.01)
+        torch.nn.init.xavier_uniform_(self.dconv4.weight)
+        self.dconv4.bias.data.fill_(0.01)
 
     def Encoder(self, x):
         eh1 = self.relu(self.ebn1(self.econv1(x)))
