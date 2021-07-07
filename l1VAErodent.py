@@ -12,12 +12,14 @@ import pickle
 
 Restore = False
 modality = "rodent"
+fs = 2000
 img_size = 24000  # 2.4 second window due to downsampling by 2
 n_channels = 10
 sub_window_size = int(img_size / n_channels)
+downsample_factor = 2
 print("{} channels with window size {}".format(n_channels, sub_window_size))
 
-def extract_windows_vectorized(array, sub_window_size, downsample_factor=2, overlap_factor=0.5):
+def extract_windows_vectorized(array, sub_window_size, downsample_factor, overlap_factor=0.5):
     # create sliding windows of size sub_window_size, downsampling by downsample_factor, and overlapping by overlap_factor percent
     sub_windows = (
         # expand_dims are used to convert a 1D array to 2D array.
@@ -34,7 +36,7 @@ def apply_sliding_window(files, eegs):
         print("Input signal shape:", signal.shape)
         current_signals = []
         for channel_index in range(n_channels):
-            signal_per_channel_sliding = extract_windows_vectorized(signal[channel_index], sub_window_size)
+            signal_per_channel_sliding = extract_windows_vectorized(signal[channel_index], sub_window_size, downsample_factor)
             current_signals.append(signal_per_channel_sliding)
         # batch x channels x time points
         current_signals = np.array(current_signals).transpose((1, 0, 2))
@@ -43,31 +45,18 @@ def apply_sliding_window(files, eegs):
         prep_eegs.extend(current_signals)
         prep_files.extend(current_file_names)
     prep_eegs = np.array(prep_eegs)
+    print("Dataset shape:", prep_eegs.shape)
     prep_files = np.array(prep_files)
     return prep_eegs, prep_files
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(' Processor is %s' % (device))
 
-# Load train EEG data with overlapping sliding windows
-with open('{}_sleep_eeg_preprocessed_eegs.pickle'.format(modality), 'rb') as handle:
-    train_eegs = pickle.load(handle)
-with open('{}_sleep_eeg_all_eeg_files.pickle'.format(modality), 'rb') as handle:
-    train_files = pickle.load(handle)
-train_prep_eegs, train_prep_files = apply_sliding_window(train_files, train_eegs)
-
-# Load test EEG data
-with open('{}_eeg_preprocessed_eegs.pickle'.format(modality), 'rb') as handle:
-    test_eegs = pickle.load(handle)
-with open('{}_eeg_all_eeg_files.pickle'.format(modality), 'rb') as handle:
-    test_files = pickle.load(handle)
-test_prep_eegs, test_prep_files = apply_sliding_window(test_files, test_eegs)
-
 # VAE model parameters for the encoder
 h_layer_1 = 8
 h_layer_2 = 16
-h_layer_5 = 500
-latent_dim = 35
+h_layer_5 = 1000
+latent_dim = 32
 kernel_size = (4, 4)
 stride = 1
 
@@ -85,18 +74,31 @@ results_save_dir = "results_{}".format(modality)
 if not os.path.isdir(results_save_dir):
     os.mkdir(results_save_dir)
 
-# load dataset via min-max normalization & add image channel dimension
-train_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
-                       for img in train_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
-test_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
-                      for img in test_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
-print("Range of normalized images of VAE:", np.min(train_imgs), np.max(train_imgs))
-train_imgs = torch.FloatTensor(train_imgs)
-test_imgs = torch.FloatTensor(test_imgs)
+if not Restore:
+    # Load train EEG data with overlapping sliding windows
+    with open('{}_sleep_eeg_preprocessed_eegs.pickle'.format(modality), 'rb') as handle:
+        train_eegs = pickle.load(handle)
+    with open('{}_sleep_eeg_all_eeg_files.pickle'.format(modality), 'rb') as handle:
+        train_files = pickle.load(handle)
+    train_prep_eegs, train_prep_files = apply_sliding_window(train_files, train_eegs)
+    # load dataset via min-max normalization & add image channel dimension
+    train_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
+                           for img in train_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
+    print("Range of normalized images of VAE:", np.min(train_imgs), np.max(train_imgs))
+    train_imgs = torch.FloatTensor(train_imgs)
+    train_loader = torch.utils.data.DataLoader(train_imgs, batch_size=batch_size, shuffle=True)
 
-# train with all signals
-train_loader = torch.utils.data.DataLoader(train_imgs, batch_size=batch_size, shuffle=True)
-test_loader = torch.utils.data.DataLoader(test_imgs, batch_size=batch_size)
+else:
+    # Load test EEG data
+    with open('{}_eeg_preprocessed_eegs.pickle'.format(modality), 'rb') as handle:
+        test_eegs = pickle.load(handle)
+    with open('{}_eeg_all_eeg_files.pickle'.format(modality), 'rb') as handle:
+        test_files = pickle.load(handle)
+    test_prep_eegs, test_prep_files = apply_sliding_window(test_files, test_eegs)
+    test_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
+                          for img in test_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
+    test_imgs = torch.FloatTensor(test_imgs)
+    #test_loader = torch.utils.data.DataLoader(test_imgs, batch_size=batch_size)
 
 class VAE(nn.Module):
     def __init__(self):
@@ -118,7 +120,7 @@ class VAE(nn.Module):
         self.dconv4 = nn.ConvTranspose2d(h_layer_1, 1, kernel_size=kernel_size, padding = 0, stride=stride)
         #
         self.sigmoid = nn.Sigmoid()
-        self.relu = nn.ReLU()
+        self.relu = nn.LeakyReLU()
 
     def Encoder(self, x):
         eh1 = self.relu(self.ebn1(self.econv1(x)))
@@ -153,7 +155,8 @@ class VAE(nn.Module):
 # initialize model
 vae = VAE()
 vae.to(device)
-vae_optimizer = optim.Adam(vae.parameters(), lr=1e-3)
+print(vae)
+vae_optimizer = optim.Adam(vae.parameters(), lr=1e-4)
 
 # loss function
 SparsityLoss = nn.L1Loss(size_average = False, reduce = True)
@@ -165,15 +168,13 @@ def elbo_loss(recon_x, x, mu_z, logvar_z):
     return L1loss + KLD
 
 # training
-if Restore == False:
+if not Restore:
     print("Training...")
-
+    best_loss = 1e10
     for i in range(epoch_num):
         time_start = time.time()
         loss_vae_value = 0.0
         for batch_indx, data in enumerate(train_loader):
-        # update VAE
-            data = data
             data = Variable(data)
             data_vae = data.to(device)
             vae_optimizer.zero_grad()
@@ -186,15 +187,21 @@ if Restore == False:
             
         time_end = time.time()
         print('elapsed time (min) : %0.1f' % ((time_end-time_start)/60))
-        print('====> Epoch: %d elbo_Loss : %0.8f' % ((i + 1), loss_vae_value / len(train_loader.dataset)))
-
+        current_loss = loss_vae_value / len(train_loader.dataset)
+        print('====> Epoch: %d elbo_Loss : %0.8f' % ((i + 1), current_loss))
+        if current_loss < best_loss:
+            best_loss = current_loss
+            best_epoch = i + 1
+            torch.save(vae.state_dict(), PATH_vae + "_best")
         if i % 10 == 9:
             torch.save(vae.state_dict(), PATH_vae + "_ep_{}".format(i + 1))
+    print("Best loss and epoch:", best_loss, best_epoch)
 
 if Restore:
-    vae.load_state_dict(torch.load(PATH_vae, map_location=lambda storage, loc: storage))
+    vae.load_state_dict(torch.load(PATH_vae + "_best", map_location=lambda storage, loc: storage))
 
 def plot_reconstruction():
+    vae.eval()
     idx = -1
     file_name_prev = test_prep_files[0]
     for file_name, img in zip(test_prep_files, test_prep_eegs):
@@ -211,15 +218,33 @@ def plot_reconstruction():
         test_imgs_rec = vae.Decoder(test_imgs_z).cpu()
         # Use negative reconstruction probability as anomaly score
         test_imgs_rec = 1 - test_imgs_rec.data.numpy()
-        img_i = test_imgs_rec[0].reshape(n_channels, sub_window_size)
+        img_i = test_imgs_rec.reshape(n_channels, sub_window_size)
+        img = img.reshape(n_channels, sub_window_size)
         # Save input image and detected anomaly
         plt.figure()
         plt.imshow(img)
-        plt.savefig(results_save_dir + '/{}_{}.jpg'.format(file_name, idx), bbox_inches='tight')
+        plt.xlabel("Time points")
+        plt.ylabel("Amplitude [0-1]")
+        plt.savefig(results_save_dir + '/im_{}_{}.jpg'.format(file_name, idx), bbox_inches='tight')
         plt.close()
         plt.figure()
         plt.imshow(img_i)
-        plt.savefig(results_save_dir + '/Rec_l_{}_{}_{}.jpg'.format(latent_dim, file_name, idx), bbox_inches='tight')
+        plt.xlabel("Time points")
+        plt.ylabel("Anomaly score [0-1]")
+        plt.savefig(results_save_dir + '/im_rec_l_{}_{}_{}.jpg'.format(latent_dim, file_name, idx), bbox_inches='tight')
+        plt.close()
+        T = np.tile(np.arange(1, sub_window_size + 1) * 1.0 / fs * downsample_factor, (n_channels,))
+        plt.figure()
+        plt.plot(T, img)
+        plt.xlabel("Time (s)")
+        plt.ylabel("Amplitude [0-1]")
+        plt.savefig(results_save_dir + '/signal_{}_{}.jpg'.format(file_name, idx), bbox_inches='tight')
+        plt.close()
+        plt.figure()
+        plt.plot(T, img_i)
+        plt.xlabel("Time (s)")
+        plt.ylabel("Anomaly score [0-1]")
+        plt.savefig(results_save_dir + '/signal_rec_l_{}_{}_{}.jpg'.format(latent_dim, file_name, idx), bbox_inches='tight')
         plt.close()
         file_name_prev = file_name
 
