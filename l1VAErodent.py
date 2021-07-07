@@ -12,7 +12,7 @@ import pickle
 
 Restore = False
 modality = "rodent"
-img_size = 240 * 320
+img_size = 24000  # 2.4 second window due to downsampling by 2
 n_channels = 10
 sub_window_size = int(img_size / n_channels)
 print("{} channels with window size {}".format(n_channels, sub_window_size))
@@ -64,20 +64,15 @@ with open('{}_eeg_all_eeg_files.pickle'.format(modality), 'rb') as handle:
 test_prep_eegs, test_prep_files = apply_sliding_window(test_files, test_eegs)
 
 # VAE model parameters for the encoder
-h_layer_1 = 32
-h_layer_2 = 64
-h_layer_3 = 128
-h_layer_4 = 128
-h_layer_5 = 2400
+h_layer_1 = 8
+h_layer_2 = 16
+h_layer_5 = 500
 latent_dim = 35
 kernel_size = (4, 4)
-pool_size = 2
-stride = 2
-feature_row = 13
-feature_col = 18
+stride = 1
 
 # VAE training parameters
-batch_size = 140
+batch_size = 128
 epoch_num = 200
 beta = 0.8
 
@@ -85,16 +80,16 @@ beta = 0.8
 model_save_dir = "models_{}".format(modality)
 if not os.path.isdir(model_save_dir):
     os.mkdir(model_save_dir)
-PATH_vae = model_save_dir + '/betaVAE_%2d' % (latent_dim)
+PATH_vae = model_save_dir + '/betaVAE_l_%2d' % (latent_dim)
 results_save_dir = "results_{}".format(modality)
 if not os.path.isdir(results_save_dir):
     os.mkdir(results_save_dir)
 
-# load dataset via min-max normalization & add channel dimension
-train_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))[:, np.newaxis, :, :]
-                       for img in train_prep_eegs])
-test_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))[:, np.newaxis, :, :]
-                      for img in test_prep_eegs])
+# load dataset via min-max normalization & add image channel dimension
+train_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
+                       for img in train_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
+test_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
+                      for img in test_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
 print("Range of normalized images of VAE:", np.min(train_imgs), np.max(train_imgs))
 train_imgs = torch.FloatTensor(train_imgs)
 test_imgs = torch.FloatTensor(test_imgs)
@@ -110,38 +105,26 @@ class VAE(nn.Module):
         self.ebn1 = nn.BatchNorm2d(h_layer_1, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
         self.econv2 = nn.Conv2d(h_layer_1, h_layer_2, kernel_size=kernel_size, stride=stride)
         self.ebn2 = nn.BatchNorm2d(h_layer_2, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
-        self.econv3 = nn.Conv2d(h_layer_2, h_layer_3, kernel_size=kernel_size, stride=stride)
-        self.ebn3 = nn.BatchNorm2d(h_layer_3, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
-        self.econv4 = nn.Conv2d(h_layer_3, h_layer_4, kernel_size=kernel_size, stride=stride)
-        self.ebn4 = nn.BatchNorm2d(h_layer_4, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
-        self.efc1  = nn.Linear(h_layer_4 * 13 * 18, h_layer_5)
+        self.efc1  = nn.Linear(h_layer_2 * 4 * 2394, h_layer_5)
         self.edrop1 = nn.Dropout(p=0.3, inplace = False)
         self.mu_z  = nn.Linear(h_layer_5, latent_dim)
         self.logvar_z = nn.Linear(h_layer_5, latent_dim)
         #
         self.dfc1 = nn.Linear(latent_dim, h_layer_5)
-        self.dfc2 = nn.Linear(h_layer_5, h_layer_4 * 13 * 18)
+        self.dfc2 = nn.Linear(h_layer_5, h_layer_2 * 4 * 2394)
         self.ddrop1 = nn.Dropout(p=0.3, inplace = False)
-        self.dconv1 = nn.ConvTranspose2d(h_layer_4, h_layer_3, kernel_size=kernel_size, stride=stride, padding = 0, output_padding = 0)
-        self.dbn1 = nn.BatchNorm2d(h_layer_3, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
-        self.dconv2 = nn.ConvTranspose2d(h_layer_3, h_layer_2, kernel_size=kernel_size, stride=stride, padding = 0, output_padding = 0)
-        self.dbn2 = nn.BatchNorm2d(h_layer_2, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
-        self.dconv3 = nn.ConvTranspose2d(h_layer_2, h_layer_1, kernel_size=kernel_size, stride=stride, padding = 0, output_padding = 1)
+        self.dconv3 = nn.ConvTranspose2d(h_layer_2, h_layer_1, kernel_size=kernel_size, stride=stride, padding = 0, output_padding = 0)
         self.dbn3 = nn.BatchNorm2d(h_layer_1, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
         self.dconv4 = nn.ConvTranspose2d(h_layer_1, 1, kernel_size=kernel_size, padding = 0, stride=stride)
-
         #
         self.sigmoid = nn.Sigmoid()
         self.relu = nn.ReLU()
 
-
-
     def Encoder(self, x):
         eh1 = self.relu(self.ebn1(self.econv1(x)))
         eh2 = self.relu(self.ebn2(self.econv2(eh1)))
-        eh3 = self.relu(self.ebn3(self.econv3(eh2)))
-        eh4 = self.relu(self.ebn4(self.econv4(eh3)))
-        eh5 = self.relu(self.edrop1(self.efc1(eh4.view(-1, h_layer_4 * 13 * 18))))
+        #print(eh2.shape)
+        eh5 = self.relu(self.edrop1(self.efc1(eh2.view(-1, h_layer_2 * 4 * 2394))))
         mu_z = self.mu_z(eh5)
         logvar_z = self.logvar_z(eh5)
         return mu_z, logvar_z
@@ -155,16 +138,17 @@ class VAE(nn.Module):
     def Decoder(self, z):
         dh1 = self.relu(self.dfc1(z))
         dh2 = self.relu(self.ddrop1(self.dfc2(dh1)))
-        dh3 = self.relu(self.dbn1(self.dconv1(dh2.view(-1, h_layer_4, 13, 18))))
-        dh4 = self.relu(self.dbn2(self.dconv2(dh3)))
-        dh5 = self.relu(self.dbn3(self.dconv3(dh4)))
+        #print(dh2.shape)
+        dh5 = self.relu(self.dbn3(self.dconv3(dh2.view(-1, h_layer_2, 4, 2394))))
         x = self.dconv4(dh5).view(-1, 1, img_size)
+        #print(x.shape)
         return self.sigmoid(x)
 
     def forward(self, x):
         mu_z, logvar_z = self.Encoder(x)
         z = self.Reparam(mu_z, logvar_z)
         return self.Decoder(z), mu_z, logvar_z, z
+
 
 # initialize model
 vae = VAE()
@@ -196,7 +180,7 @@ if Restore == False:
             recon_x, mu_z, logvar_z, z = vae.forward(data_vae)
             loss_vae = elbo_loss(recon_x, data_vae, mu_z, logvar_z)
             loss_vae.backward()
-            loss_vae_value += loss_vae.data[0]
+            loss_vae_value += loss_vae.data
 
             vae_optimizer.step()
             
@@ -204,7 +188,8 @@ if Restore == False:
         print('elapsed time (min) : %0.1f' % ((time_end-time_start)/60))
         print('====> Epoch: %d elbo_Loss : %0.8f' % ((i + 1), loss_vae_value / len(train_loader.dataset)))
 
-    torch.save(vae.state_dict(), PATH_vae)
+        if i % 10 == 9:
+            torch.save(vae.state_dict(), PATH_vae + "_ep_{}".format(i + 1))
 
 if Restore:
     vae.load_state_dict(torch.load(PATH_vae, map_location=lambda storage, loc: storage))
