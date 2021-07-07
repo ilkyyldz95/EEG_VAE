@@ -110,7 +110,7 @@ class VAE(nn.Module):
         self.efc1  = nn.Linear(h_layer_2 * 4 * 2394, h_layer_5)
         self.edrop1 = nn.Dropout(p=0.3, inplace = False)
         self.mu_z  = nn.Linear(h_layer_5, latent_dim)
-        self.logvar_z = nn.Linear(h_layer_5, latent_dim)
+        self.scale_z = nn.Linear(h_layer_5, latent_dim)
         #
         self.dfc1 = nn.Linear(latent_dim, h_layer_5)
         self.dfc2 = nn.Linear(h_layer_5, h_layer_2 * 4 * 2394)
@@ -121,6 +121,7 @@ class VAE(nn.Module):
         #
         self.sigmoid = nn.Sigmoid()
         self.relu = nn.LeakyReLU()
+        self.softplus = nn.Softplus()
         # initialize weights
         torch.nn.init.xavier_uniform_(self.econv1.weight)
         self.econv1.bias.data.fill_(0.01)
@@ -130,8 +131,8 @@ class VAE(nn.Module):
         self.efc1.bias.data.fill_(0.01)
         torch.nn.init.xavier_uniform_(self.mu_z.weight)
         self.mu_z.bias.data.fill_(0.01)
-        torch.nn.init.xavier_uniform_(self.logvar_z.weight)
-        self.logvar_z.bias.data.fill_(0.01)
+        torch.nn.init.xavier_uniform_(self.scale_z.weight)
+        self.scale_z.bias.data.fill_(0.01)
         torch.nn.init.xavier_uniform_(self.dfc1.weight)
         self.dfc1.bias.data.fill_(0.01)
         torch.nn.init.xavier_uniform_(self.dfc2.weight)
@@ -147,14 +148,16 @@ class VAE(nn.Module):
         #print(eh2.shape)
         eh5 = self.relu(self.edrop1(self.efc1(eh2.view(-1, h_layer_2 * 4 * 2394))))
         mu_z = self.mu_z(eh5)
-        logvar_z = self.logvar_z(eh5)
-        return mu_z, logvar_z
+        scale_z = self.scale_z(eh5)
+        return mu_z, scale_z
 
-    def Reparam(self, mu_z, logvar_z):
-        std = logvar_z.mul(0.5).exp()
-        eps = Variable(std.data.new(std.size()).normal_())
+    def Reparam(self, mu_z, scale_z):
+        #std = logvar_z.mul(0.5).exp()
+        #eps = Variable(std.data.new(std.size()).normal_())
+        scale = self.softplus(scale_z)
+        eps = torch.randn(mu_z.shape)
         eps = eps.to(device)
-        return eps.mul(std).add_(mu_z)
+        return mu_z + scale * eps  # eps.mul(std).add_(mu_z)
 
     def Decoder(self, z):
         dh1 = self.relu(self.dfc1(z))
@@ -166,25 +169,25 @@ class VAE(nn.Module):
         return self.sigmoid(x)
 
     def forward(self, x):
-        mu_z, logvar_z = self.Encoder(x)
-        z = self.Reparam(mu_z, logvar_z)
-        return self.Decoder(z), mu_z, logvar_z, z
+        mu_z, scale_z = self.Encoder(x)
+        z = self.Reparam(mu_z, scale_z)
+        return self.Decoder(z), mu_z, scale_z, z
 
 
 # initialize model
 vae = VAE()
 vae.to(device)
 print(vae)
-vae_optimizer = optim.Adam(vae.parameters(), lr=1e-4)
+vae_optimizer = optim.Adam(vae.parameters(), lr=1e-3)
 
 # loss function
 SparsityLoss = nn.L1Loss(size_average = False, reduce = True)
-def elbo_loss(recon_x, x, mu_z, logvar_z):
+def elbo_loss(recon_x, x, mu_z, scale_z):
 
     L1loss = SparsityLoss(recon_x, x.view(-1, 1, img_size))
-    KLD = -0.5 * beta * torch.sum(1 + logvar_z - mu_z.pow(2) - logvar_z.exp())
+    KLD = -0.5 * beta * torch.sum(1 + torch.log(scale_z.pow(2) + 1e-6) - mu_z.pow(2) - scale_z.pow(2))
 
-    return L1loss + KLD
+    return torch.mean(L1loss + KLD, dim=0)
 
 # training
 if not Restore:
@@ -196,12 +199,14 @@ if not Restore:
         for batch_indx, data in enumerate(train_loader):
             data = Variable(data)
             data_vae = data.to(device)
-            vae_optimizer.zero_grad()
-            recon_x, mu_z, logvar_z, z = vae.forward(data_vae)
-            loss_vae = elbo_loss(recon_x, data_vae, mu_z, logvar_z)
-            loss_vae.backward()
-            loss_vae_value += loss_vae.data
 
+            vae_optimizer.zero_grad()
+            recon_x, mu_z, scale_z, z = vae.forward(data_vae)
+            loss_vae = elbo_loss(recon_x, data_vae, mu_z, scale_z)
+
+            loss_vae.backward()
+            #torch.nn.utils.clip_grad_norm_(vae.parameters(), 1)
+            loss_vae_value += loss_vae.data
             vae_optimizer.step()
             
         time_end = time.time()
@@ -252,17 +257,21 @@ def plot_reconstruction():
         plt.ylabel("Anomaly score [0-1]")
         plt.savefig(results_save_dir + '/im_rec_l_{}_{}_{}.jpg'.format(latent_dim, file_name, idx), bbox_inches='tight')
         plt.close()
-        T = np.tile(np.arange(1, sub_window_size + 1) * 1.0 / fs * downsample_factor, (n_channels,))
+        T = np.arange(1, sub_window_size + 1) * 1.0 / fs * downsample_factor
         plt.figure()
-        plt.plot(T, img)
+        for ch in range(n_channels):
+            plt.plot(T, img[ch])
         plt.xlabel("Time (s)")
         plt.ylabel("Amplitude [0-1]")
+        plt.ylim([0, 1])
         plt.savefig(results_save_dir + '/signal_{}_{}.jpg'.format(file_name, idx), bbox_inches='tight')
         plt.close()
         plt.figure()
-        plt.plot(T, img_i)
+        for ch in range(n_channels):
+            plt.plot(T, img_i[ch])
         plt.xlabel("Time (s)")
         plt.ylabel("Anomaly score [0-1]")
+        plt.ylim([0, 1])
         plt.savefig(results_save_dir + '/signal_rec_l_{}_{}_{}.jpg'.format(latent_dim, file_name, idx), bbox_inches='tight')
         plt.close()
         file_name_prev = file_name
