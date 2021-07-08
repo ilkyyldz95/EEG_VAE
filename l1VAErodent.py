@@ -10,6 +10,7 @@ import os
 import time
 import pickle
 import matplotlib.pyplot as plt
+from sklearn.manifold import TSNE
 
 Restore = True
 modality = "rodent"
@@ -65,7 +66,7 @@ stride = 1
 
 # VAE training parameters
 batch_size = 128
-epoch_num = 200
+epoch_num = 350
 beta = 0.8
 
 # Save folders for trained models and logs
@@ -77,21 +78,20 @@ results_save_dir = "results_{}".format(modality)
 if not os.path.isdir(results_save_dir):
     os.mkdir(results_save_dir)
 
-if not Restore:
-    # Load train EEG data with overlapping sliding windows
-    with open('{}_sleep_eeg_preprocessed_eegs.pickle'.format(modality), 'rb') as handle:
-        train_eegs = pickle.load(handle)
-    with open('{}_sleep_eeg_all_eeg_files.pickle'.format(modality), 'rb') as handle:
-        train_files = pickle.load(handle)
-    train_prep_eegs, train_files = apply_sliding_window(train_files, train_eegs)
-    # load dataset via min-max normalization & add image channel dimension
-    train_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
-                           for img in train_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
-    print("Range of normalized images of VAE:", np.min(train_imgs), np.max(train_imgs))
-    train_imgs = torch.FloatTensor(train_imgs)
-    train_loader = torch.utils.data.DataLoader(train_imgs, batch_size=batch_size, shuffle=True)
+# Load train EEG data with overlapping sliding windows
+with open('{}_sleep_eeg_preprocessed_eegs.pickle'.format(modality), 'rb') as handle:
+    train_eegs = pickle.load(handle)
+with open('{}_sleep_eeg_all_eeg_files.pickle'.format(modality), 'rb') as handle:
+    train_files = pickle.load(handle)
+train_prep_eegs, train_files = apply_sliding_window(train_files, train_eegs)
+# load dataset via min-max normalization & add image channel dimension
+train_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
+                       for img in train_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
+print("Range of normalized images of VAE:", np.min(train_imgs), np.max(train_imgs))
+train_imgs = torch.FloatTensor(train_imgs)
+train_loader = torch.utils.data.DataLoader(train_imgs, batch_size=batch_size, shuffle=True)
 
-else:
+if Restore:
     # Load test EEG data
     with open('{}_eeg_preprocessed_eegs.pickle'.format(modality), 'rb') as handle:
         test_eegs = pickle.load(handle)
@@ -101,7 +101,9 @@ else:
     test_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
                           for img in test_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
     test_imgs = torch.FloatTensor(test_imgs)
-    #test_loader = torch.utils.data.DataLoader(test_imgs, batch_size=batch_size)
+    # Test on sleep as well
+    test_files = np.concatenate([train_files, test_files], 0)
+    test_imgs = np.concatenate([train_imgs, test_imgs], 0)
 
 class VAE(nn.Module):
     def __init__(self):
@@ -231,6 +233,7 @@ def plot_reconstruction():
     vae.eval()
     idx = -1
     file_name_prev = test_files[0]
+    latent_vars = []
     for file_name, img in zip(test_files, test_imgs):
         # counter for sliding windows over the same file
         if file_name_prev == file_name:
@@ -243,28 +246,68 @@ def plot_reconstruction():
         test_imgs_z_mu, test_imgs_z_scale = vae.Encoder(img_variable)
         test_imgs_rec = []
         # Repeat and average reconstruction
-        for _ in range(latent_dim):
+        for _ in range(10):
             test_imgs_z = vae.Reparam(test_imgs_z_mu, test_imgs_z_scale)
             test_imgs_rec.append(vae.Decoder(test_imgs_z).squeeze(0).squeeze(0).cpu().data.numpy())  # img_size vector
-        # Use negative reconstruction probability as anomaly score
+        # Use reconstruction error as anomaly score
+        latent_vars.append(test_imgs_z.squeeze(0).squeeze(0).cpu().data.numpy())
         img_i = np.mean(test_imgs_rec, 0).reshape(n_channels, sub_window_size)
         img = img.reshape(n_channels, sub_window_size)
         img_anom = np.abs(img - img_i)
-        # Save input image and detected anomaly
-        T = np.arange(1, sub_window_size + 1) * 1.0 / fs * downsample_factor
+        # Save input image, its spectogram, and detected anomaly
+        T = np.arange(1, sub_window_size + 1) / (fs/downsample_factor)
         plt.figure()
         _, axs = plt.subplots(int(n_channels / 2), 2)
         for ch in range(int(n_channels / 2)):
             axs[ch, 0].plot(T, img[ch], "b")
             axs[ch, 0].plot(T, img_anom[ch], "r")
-        for ch in range(int(n_channels / 2)):
-            axs[ch, 1].plot(T, img[ch+int(n_channels / 2)], "b")
-            axs[ch, 1].plot(T, img_anom[ch+int(n_channels / 2)], "r")
-        for ax in axs.flat:
-            ax.set(xlabel="Time (s). Input (b). Anomaly (r)", ylim=[0, 1])
-        plt.savefig(results_save_dir + '/{}_{}_l_{}.jpg'.format(file_name, idx, latent_dim), bbox_inches='tight')
+            axs[ch, 1].specgram(img[ch], Fs=fs/downsample_factor)
+            axs[ch, 0].grid()
+            axs[ch, 1].grid()
+            axs[ch, 0].set_ylim([0, 1])
+            axs[ch, 1].set_ylim([0, 60])
+        axs[-1, 0].set(xlabel="Time (s) vs. Input (b) Anomaly (r)")
+        axs[-1, 1].set(xlabel="Time (s) vs. Frequency (Hz)")
+        plt.savefig(results_save_dir + '/{}_{}_ch1_l_{}.jpg'.format(file_name, idx, latent_dim), bbox_inches='tight')
         plt.close()
+        plt.figure()
+        _, axs = plt.subplots(int(n_channels / 2), 2)
+        for ch in range(int(n_channels / 2)):
+            axs[ch, 0].plot(T, img[ch + int(n_channels / 2)], "b")
+            axs[ch, 0].plot(T, img_anom[ch + int(n_channels / 2)], "r")
+            axs[ch, 1].specgram(img[ch + int(n_channels / 2)], Fs=fs/downsample_factor)
+            axs[ch, 0].grid()
+            axs[ch, 1].grid()
+            axs[ch, 0].set_ylim([0, 1])
+            axs[ch, 1].set_ylim([0, 60])
+        axs[-1, 0].set(xlabel="Time (s) vs. Input (b) Anomaly (r)")
+        axs[-1, 1].set(xlabel="Time (s) vs. Frequency (Hz)")
+        plt.savefig(results_save_dir + '/{}_{}_ch2_l_{}.jpg'.format(file_name, idx, latent_dim), bbox_inches='tight')
+        plt.close()
+
         file_name_prev = file_name
+    # Plot latent space w.r.t. categories
+    idx_awake = [idx for idx in range(len(test_files)) if "awake" in test_files[idx] or "Awake" in test_files[idx]]
+    idx_sleep = [idx for idx in range(len(test_files)) if "sleep" in test_files[idx] or "Sleep" in test_files[idx]]
+    idx_light = [idx for idx in range(len(test_files)) if "light" in test_files[idx] or "Light" in test_files[idx]]
+    idx_dark = [idx for idx in range(len(test_files)) if "dark" in test_files[idx] or "Dark" in test_files[idx]]
+    print("Latent space matrix original shape:", np.array(latent_vars).shape)
+    latent_vars_embedded = TSNE(n_components=2).fit_transform(np.array(latent_vars))
+    print("Latent space matrix reduced shape:", latent_vars_embedded.shape)
+    plt.figure()
+    _, ax = plt.subplots()
+    ax.scatter(latent_vars_embedded[idx_awake, 0], latent_vars_embedded[idx_awake, 1], c="b", label="Awake")
+    ax.scatter(latent_vars_embedded[idx_sleep, 0], latent_vars_embedded[idx_sleep, 1], c="r", label="Sleep")
+    ax.legend()
+    plt.savefig(results_save_dir + '/latent_awake_sleep_l_{}.jpg'.format(latent_dim), bbox_inches='tight')
+    plt.close()
+    plt.figure()
+    _, ax = plt.subplots()
+    ax.scatter(latent_vars_embedded[idx_light, 0], latent_vars_embedded[idx_light, 1], c="b", label="Light")
+    ax.scatter(latent_vars_embedded[idx_dark, 0], latent_vars_embedded[idx_dark, 1], c="r", label="Dark")
+    ax.legend()
+    plt.savefig(results_save_dir + '/latent_dark_light_l_{}.jpg'.format(latent_dim), bbox_inches='tight')
+    plt.close()
 
 if Restore:
     plot_reconstruction()
