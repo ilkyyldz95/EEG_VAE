@@ -9,8 +9,9 @@ from torch import nn, optim
 import os
 import time
 import pickle
+import matplotlib.pyplot as plt
 
-Restore = False
+Restore = True
 modality = "rodent"
 fs = 2000
 img_size = 24000  # 2.4 second window due to downsampling by 2
@@ -40,8 +41,10 @@ def apply_sliding_window(files, eegs):
             current_signals.append(signal_per_channel_sliding)
         # batch x channels x time points
         current_signals = np.array(current_signals).transpose((1, 0, 2))
-        current_file_names = np.tile([file_name], (len(current_signals),))
         print("Sliding output signal shape:", current_signals.shape)
+        # take file name only
+        file_name = file_name.split("/")[-1].split(".")[0]
+        current_file_names = np.tile([file_name], (len(current_signals),))
         prep_eegs.extend(current_signals)
         prep_files.extend(current_file_names)
     prep_eegs = np.array(prep_eegs)
@@ -56,7 +59,7 @@ print(' Processor is %s' % (device))
 h_layer_1 = 8
 h_layer_2 = 16
 h_layer_5 = 1000
-latent_dim = 16
+latent_dim = 64
 kernel_size = (4, 4)
 stride = 1
 
@@ -80,7 +83,7 @@ if not Restore:
         train_eegs = pickle.load(handle)
     with open('{}_sleep_eeg_all_eeg_files.pickle'.format(modality), 'rb') as handle:
         train_files = pickle.load(handle)
-    train_prep_eegs, train_prep_files = apply_sliding_window(train_files, train_eegs)
+    train_prep_eegs, train_files = apply_sliding_window(train_files, train_eegs)
     # load dataset via min-max normalization & add image channel dimension
     train_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
                            for img in train_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
@@ -94,7 +97,7 @@ else:
         test_eegs = pickle.load(handle)
     with open('{}_eeg_all_eeg_files.pickle'.format(modality), 'rb') as handle:
         test_files = pickle.load(handle)
-    test_prep_eegs, test_prep_files = apply_sliding_window(test_files, test_eegs)
+    test_prep_eegs, test_files = apply_sliding_window(test_files, test_eegs)
     test_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
                           for img in test_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
     test_imgs = torch.FloatTensor(test_imgs)
@@ -227,8 +230,8 @@ if Restore:
 def plot_reconstruction():
     vae.eval()
     idx = -1
-    file_name_prev = test_prep_files[0]
-    for file_name, img in zip(test_prep_files, test_prep_eegs):
+    file_name_prev = test_files[0]
+    for file_name, img in zip(test_files, test_imgs):
         # counter for sliding windows over the same file
         if file_name_prev == file_name:
             idx += 1
@@ -237,42 +240,29 @@ def plot_reconstruction():
         img_variable = Variable(torch.FloatTensor(img))
         img_variable = img_variable.unsqueeze(0)
         img_variable = img_variable.to(device)
-        test_imgs_z_mu, test_imgs_z_logvar = vae.Encoder(img_variable)
-        test_imgs_z = vae.Reparam(test_imgs_z_mu, test_imgs_z_logvar)
-        test_imgs_rec = vae.Decoder(test_imgs_z).cpu()
+        test_imgs_z_mu, test_imgs_z_scale = vae.Encoder(img_variable)
+        test_imgs_rec = []
+        # Repeat and average reconstruction
+        for _ in range(latent_dim):
+            test_imgs_z = vae.Reparam(test_imgs_z_mu, test_imgs_z_scale)
+            test_imgs_rec.append(vae.Decoder(test_imgs_z).squeeze(0).squeeze(0).cpu().data.numpy())  # img_size vector
         # Use negative reconstruction probability as anomaly score
-        test_imgs_rec = 1 - test_imgs_rec.data.numpy()
-        img_i = test_imgs_rec.reshape(n_channels, sub_window_size)
+        img_i = np.mean(test_imgs_rec, 0).reshape(n_channels, sub_window_size)
         img = img.reshape(n_channels, sub_window_size)
+        img_anom = np.abs(img - img_i)
         # Save input image and detected anomaly
-        plt.figure()
-        plt.imshow(img)
-        plt.xlabel("Time points")
-        plt.ylabel("Amplitude [0-1]")
-        plt.savefig(results_save_dir + '/im_{}_{}.jpg'.format(file_name, idx), bbox_inches='tight')
-        plt.close()
-        plt.figure()
-        plt.imshow(img_i)
-        plt.xlabel("Time points")
-        plt.ylabel("Anomaly score [0-1]")
-        plt.savefig(results_save_dir + '/im_rec_l_{}_{}_{}.jpg'.format(latent_dim, file_name, idx), bbox_inches='tight')
-        plt.close()
         T = np.arange(1, sub_window_size + 1) * 1.0 / fs * downsample_factor
         plt.figure()
-        for ch in range(n_channels):
-            plt.plot(T, img[ch])
-        plt.xlabel("Time (s)")
-        plt.ylabel("Amplitude [0-1]")
-        plt.ylim([0, 1])
-        plt.savefig(results_save_dir + '/signal_{}_{}.jpg'.format(file_name, idx), bbox_inches='tight')
-        plt.close()
-        plt.figure()
-        for ch in range(n_channels):
-            plt.plot(T, img_i[ch])
-        plt.xlabel("Time (s)")
-        plt.ylabel("Anomaly score [0-1]")
-        plt.ylim([0, 1])
-        plt.savefig(results_save_dir + '/signal_rec_l_{}_{}_{}.jpg'.format(latent_dim, file_name, idx), bbox_inches='tight')
+        _, axs = plt.subplots(int(n_channels / 2), 2)
+        for ch in range(int(n_channels / 2)):
+            axs[ch, 0].plot(T, img[ch], "b")
+            axs[ch, 0].plot(T, img_anom[ch], "r")
+        for ch in range(int(n_channels / 2)):
+            axs[ch, 1].plot(T, img[ch+int(n_channels / 2)], "b")
+            axs[ch, 1].plot(T, img_anom[ch+int(n_channels / 2)], "r")
+        for ax in axs.flat:
+            ax.set(xlabel="Time (s). Input (b). Anomaly (r)", ylim=[0, 1])
+        plt.savefig(results_save_dir + '/{}_{}_l_{}.jpg'.format(file_name, idx, latent_dim), bbox_inches='tight')
         plt.close()
         file_name_prev = file_name
 
