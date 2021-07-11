@@ -11,6 +11,8 @@ import time
 import pickle
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
+from scipy.signal import spectrogram
+from scipy.stats import kendalltau
 
 Restore = True
 modality = "rodent"
@@ -103,6 +105,7 @@ if Restore:
     test_imgs = torch.FloatTensor(test_imgs)
     # Test on sleep as well
     test_files = np.concatenate([train_files, test_files], 0)
+    test_prep_eegs = np.concatenate([train_prep_eegs, test_prep_eegs], 0)
     test_imgs = np.concatenate([train_imgs, test_imgs], 0)
 
 class VAE(nn.Module):
@@ -231,83 +234,153 @@ if Restore:
 
 def plot_reconstruction():
     vae.eval()
-    idx = -1
-    file_name_prev = test_files[0]
     latent_vars = []
+    anom_scores = []
+    freq_stds = []
     for file_name, img in zip(test_files, test_imgs):
-        # counter for sliding windows over the same file
-        if file_name_prev == file_name:
-            idx += 1
-        else:
-            idx = 0
         img_variable = Variable(torch.FloatTensor(img))
         img_variable = img_variable.unsqueeze(0)
         img_variable = img_variable.to(device)
         test_imgs_z_mu, test_imgs_z_scale = vae.Encoder(img_variable)
+        latent_vars.append(test_imgs_z_mu.squeeze(0).squeeze(0).cpu().data.numpy())
+        # Repeat and average reconstruction
         test_imgs_rec = []
         # Repeat and average reconstruction
-        for _ in range(10):
+        for _ in range(5):
             test_imgs_z = vae.Reparam(test_imgs_z_mu, test_imgs_z_scale)
             test_imgs_rec.append(vae.Decoder(test_imgs_z).squeeze(0).squeeze(0).cpu().data.numpy())  # img_size vector
         # Use reconstruction error as anomaly score
-        latent_vars.append(test_imgs_z.squeeze(0).squeeze(0).cpu().data.numpy())
         img_i = np.mean(test_imgs_rec, 0).reshape(n_channels, sub_window_size)
         img = img.reshape(n_channels, sub_window_size)
-        img_anom = np.abs(img - img_i)
-        # Save input image, its spectogram, and detected anomaly
-        T = np.arange(1, sub_window_size + 1) / (fs/downsample_factor)
-        plt.figure()
-        _, axs = plt.subplots(int(n_channels / 2), 2)
-        for ch in range(int(n_channels / 2)):
-            axs[ch, 0].plot(T, img[ch], "b")
-            axs[ch, 0].plot(T, img_anom[ch], "r")
-            axs[ch, 1].specgram(img[ch], Fs=fs/downsample_factor)
-            axs[ch, 0].grid()
-            axs[ch, 1].grid()
-            axs[ch, 0].set_ylim([0, 1])
-            axs[ch, 1].set_ylim([0, 60])
-        axs[-1, 0].set(xlabel="Time (s) vs. Input (b) Anomaly (r)")
-        axs[-1, 1].set(xlabel="Time (s) vs. Frequency (Hz)")
-        plt.savefig(results_save_dir + '/{}_{}_ch1_l_{}.jpg'.format(file_name, idx, latent_dim), bbox_inches='tight')
-        plt.close()
-        plt.figure()
-        _, axs = plt.subplots(int(n_channels / 2), 2)
-        for ch in range(int(n_channels / 2)):
-            axs[ch, 0].plot(T, img[ch + int(n_channels / 2)], "b")
-            axs[ch, 0].plot(T, img_anom[ch + int(n_channels / 2)], "r")
-            axs[ch, 1].specgram(img[ch + int(n_channels / 2)], Fs=fs/downsample_factor)
-            axs[ch, 0].grid()
-            axs[ch, 1].grid()
-            axs[ch, 0].set_ylim([0, 1])
-            axs[ch, 1].set_ylim([0, 60])
-        axs[-1, 0].set(xlabel="Time (s) vs. Input (b) Anomaly (r)")
-        axs[-1, 1].set(xlabel="Time (s) vs. Frequency (Hz)")
-        plt.savefig(results_save_dir + '/{}_{}_ch2_l_{}.jpg'.format(file_name, idx, latent_dim), bbox_inches='tight')
-        plt.close()
+        anom_scores.append(np.mean(np.abs(img - img_i)))
+        # Record frequency standard deviation within each time window as potential anomalic activity
+        current_psd = 0
+        for ch in range(n_channels):
+            _, _, spectrum2D = spectrogram(img[ch], fs=fs / downsample_factor)
+            current_psd += np.std(spectrum2D)
+        freq_stds.append(current_psd/n_channels)
 
-        file_name_prev = file_name
+    np.save(results_save_dir + '/anom_scores_l_{}.npy'.format(latent_dim), anom_scores)
+    np.save(results_save_dir + '/freq_stds_l_{}.npy'.format(latent_dim), freq_stds)
+
     # Plot latent space w.r.t. categories
     idx_awake = [idx for idx in range(len(test_files)) if "awake" in test_files[idx] or "Awake" in test_files[idx]]
     idx_sleep = [idx for idx in range(len(test_files)) if "sleep" in test_files[idx] or "Sleep" in test_files[idx]]
     idx_light = [idx for idx in range(len(test_files)) if "light" in test_files[idx] or "Light" in test_files[idx]]
     idx_dark = [idx for idx in range(len(test_files)) if "dark" in test_files[idx] or "Dark" in test_files[idx]]
-    print("Latent space matrix original shape:", np.array(latent_vars).shape)
-    latent_vars_embedded = TSNE(n_components=2).fit_transform(np.array(latent_vars))
+    latent_vars = np.array(latent_vars)[np.concatenate([idx_awake, idx_sleep, idx_light, idx_dark], 0)]
+    print("Latent space matrix original shape:", latent_vars.shape)
+    latent_vars_embedded = TSNE(n_components=2).fit_transform(latent_vars)
+    np.save(results_save_dir + '/latent_tsne_l_{}.npy'.format(latent_dim), latent_vars_embedded)
     print("Latent space matrix reduced shape:", latent_vars_embedded.shape)
+
     plt.figure()
     _, ax = plt.subplots()
-    ax.scatter(latent_vars_embedded[idx_awake, 0], latent_vars_embedded[idx_awake, 1], c="b", label="Awake")
-    ax.scatter(latent_vars_embedded[idx_sleep, 0], latent_vars_embedded[idx_sleep, 1], c="r", label="Sleep")
+    ax.scatter(latent_vars_embedded[:len(idx_awake), 0], latent_vars_embedded[:len(idx_awake), 1],
+               c="b", label="Awake", alpha=0.5)
+    ax.scatter(latent_vars_embedded[len(idx_awake):len(idx_awake)+len(idx_sleep), 0],
+               latent_vars_embedded[len(idx_awake):len(idx_awake)+len(idx_sleep), 1],
+               c="g", label="Sleep", alpha=0.5)
     ax.legend()
     plt.savefig(results_save_dir + '/latent_awake_sleep_l_{}.jpg'.format(latent_dim), bbox_inches='tight')
     plt.close()
     plt.figure()
     _, ax = plt.subplots()
-    ax.scatter(latent_vars_embedded[idx_light, 0], latent_vars_embedded[idx_light, 1], c="b", label="Light")
-    ax.scatter(latent_vars_embedded[idx_dark, 0], latent_vars_embedded[idx_dark, 1], c="r", label="Dark")
+    ax.scatter(latent_vars_embedded[len(idx_awake)+len(idx_sleep):len(idx_awake)+len(idx_sleep)+len(idx_light), 0],
+               latent_vars_embedded[len(idx_awake)+len(idx_sleep):len(idx_awake)+len(idx_sleep)+len(idx_light), 1],
+               c="b", label="Light", alpha=0.5)
+    ax.scatter(latent_vars_embedded[-len(idx_dark):, 0], latent_vars_embedded[-len(idx_dark):, 1],
+               c="g", label="Dark", alpha=0.5)
     ax.legend()
     plt.savefig(results_save_dir + '/latent_dark_light_l_{}.jpg'.format(latent_dim), bbox_inches='tight')
     plt.close()
+
+    # Plot anomaly score histograms w.r.t. categories
+    plt.figure()
+    _, ax = plt.subplots()
+    plt.hist(anom_scores[:len(idx_awake)], 50, density=True, facecolor="b", label="Awake", alpha=0.5)
+    plt.hist(anom_scores[len(idx_awake):len(idx_awake) + len(idx_sleep)], 50, density=True,
+             facecolor="g", label="Sleep", alpha=0.5)
+    ax.legend()
+    ax.set(xlabel='Anomaly Score [0,1]')
+    plt.savefig(results_save_dir + '/anom_awake_sleep_l_{}.jpg'.format(latent_dim), bbox_inches='tight')
+    plt.close()
+    plt.figure()
+    _, ax = plt.subplots()
+    plt.hist(anom_scores[len(idx_awake) + len(idx_sleep):len(idx_awake) + len(idx_sleep) + len(idx_light)],
+             50, density=True, facecolor="b", label="Light", alpha=0.5)
+    plt.hist(anom_scores[-len(idx_dark):], 50, density=True,
+             facecolor="g", label="Dark", alpha=0.5)
+    ax.legend()
+    ax.set(xlabel='Anomaly Score [0,1]')
+    plt.savefig(results_save_dir + '/anom_dark_light_l_{}.jpg'.format(latent_dim), bbox_inches='tight')
+    plt.close()
+
+    # Plot signals with smallest and largest anomaly scores
+    sorted_anom_windows_idx = np.argsort(anom_scores)
+    T = np.arange(1, sub_window_size + 1) / (fs / downsample_factor)
+    for window_idx in sorted_anom_windows_idx[:3]:
+        # Plot original unnormalized signal
+        img = test_prep_eegs[window_idx].reshape(n_channels, sub_window_size)
+        file_name = test_files[window_idx]
+        plt.figure()
+        _, axs = plt.subplots(int(n_channels / 2), 2)
+        for ch in range(int(n_channels/2)):
+            axs[ch, 0].plot(T, img[ch])
+            axs[ch, 1].plot(T, img[ch + int(n_channels/2)])
+            axs[ch, 0].grid()
+            axs[ch, 1].grid()
+        axs[-1, 0].set(xlabel="Time (s) vs. Signal per channel")
+        plt.savefig(results_save_dir + '/least_anom_{}_l_{}.jpg'.format(file_name, latent_dim), bbox_inches='tight')
+        plt.close()
+    for window_idx in sorted_anom_windows_idx[-3:]:
+        # Plot original unnormalized signal
+        img = test_prep_eegs[window_idx].reshape(n_channels, sub_window_size)
+        file_name = test_files[window_idx]
+        plt.figure()
+        _, axs = plt.subplots(int(n_channels / 2), 2)
+        for ch in range(int(n_channels/2)):
+            axs[ch, 0].plot(T, img[ch])
+            axs[ch, 1].plot(T, img[ch + int(n_channels/2)])
+            axs[ch, 0].grid()
+            axs[ch, 1].grid()
+        axs[-1, 0].set(xlabel="Time (s) vs. Signal per channel")
+        plt.savefig(results_save_dir + '/most_anom_{}_l_{}.jpg'.format(file_name, latent_dim), bbox_inches='tight')
+        plt.close()
+
+    # Plot signals with smallest and largest frequency sweeps
+    sorted_freq_std_windows_idx = np.argsort(freq_stds)
+    print('Kendall-Tau correlation between rankings of anomaly means and frequency stds:',
+          kendalltau(sorted_freq_std_windows_idx, sorted_anom_windows_idx))
+    T = np.arange(1, sub_window_size + 1) / (fs / downsample_factor)
+    for window_idx in sorted_freq_std_windows_idx[:3]:
+        # Plot original unnormalized signal
+        img = test_prep_eegs[window_idx].reshape(n_channels, sub_window_size)
+        file_name = test_files[window_idx]
+        plt.figure()
+        _, axs = plt.subplots(int(n_channels / 2), 2)
+        for ch in range(int(n_channels / 2)):
+            axs[ch, 0].plot(T, img[ch])
+            axs[ch, 1].plot(T, img[ch + int(n_channels / 2)])
+            axs[ch, 0].grid()
+            axs[ch, 1].grid()
+        axs[-1, 0].set(xlabel="Time (s) vs. Signal per channel")
+        plt.savefig(results_save_dir + '/least_freq_std_{}_l_{}.jpg'.format(file_name, latent_dim), bbox_inches='tight')
+        plt.close()
+    for window_idx in sorted_freq_std_windows_idx[-3:]:
+        # Plot original unnormalized signal
+        img = test_prep_eegs[window_idx].reshape(n_channels, sub_window_size)
+        file_name = test_files[window_idx]
+        plt.figure()
+        _, axs = plt.subplots(int(n_channels / 2), 2)
+        for ch in range(int(n_channels / 2)):
+            axs[ch, 0].plot(T, img[ch])
+            axs[ch, 1].plot(T, img[ch + int(n_channels / 2)])
+            axs[ch, 0].grid()
+            axs[ch, 1].grid()
+        axs[-1, 0].set(xlabel="Time (s) vs. Signal per channel")
+        plt.savefig(results_save_dir + '/most_freq_std_{}_l_{}.jpg'.format(file_name, latent_dim), bbox_inches='tight')
+        plt.close()
 
 if Restore:
     plot_reconstruction()
