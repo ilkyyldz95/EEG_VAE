@@ -12,7 +12,7 @@ import pickle
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 from scipy.signal import spectrogram
-from scipy.stats import kendalltau
+from scipy.stats import kendalltau, wilcoxon
 
 Restore = True
 modality = "rodent"
@@ -62,7 +62,7 @@ print(' Processor is %s' % (device))
 h_layer_1 = 8
 h_layer_2 = 16
 h_layer_5 = 1000
-latent_dim = 3
+latent_dim = 64
 kernel_size = (4, 4)
 stride = 1
 
@@ -314,7 +314,6 @@ def plot_reconstruction():
 
     # Plot anomaly score histograms w.r.t. categories
     anom_avg_scores = np.median(np.median(anom_scores, -1), -1)
-    print("Number of test signals:", anom_avg_scores.shape)
     plt.figure()
     _, ax = plt.subplots()
     plt.hist(anom_avg_scores[:len(idx_awake)], 50, density=True, facecolor="b", label="Awake", alpha=0.5)
@@ -324,6 +323,8 @@ def plot_reconstruction():
     ax.set(xlabel='Anomaly Score [0,1]')
     plt.savefig(results_save_dir + '/anom_awake_sleep_l_{}.jpg'.format(latent_dim), bbox_inches='tight')
     plt.close()
+    print("P-value between awake and sleep:", wilcoxon(anom_avg_scores[:len(idx_awake)],
+            anom_avg_scores[len(idx_awake):len(idx_awake) + len(idx_sleep)]))
     plt.figure()
     _, ax = plt.subplots()
     plt.hist(anom_avg_scores[len(idx_awake) + len(idx_sleep):len(idx_awake) + len(idx_sleep) + len(idx_light)],
@@ -334,6 +335,9 @@ def plot_reconstruction():
     ax.set(xlabel='Anomaly Score [0,1]')
     plt.savefig(results_save_dir + '/anom_dark_light_l_{}.jpg'.format(latent_dim), bbox_inches='tight')
     plt.close()
+    print("P-value between light and dark:",
+            wilcoxon(anom_avg_scores[len(idx_awake) + len(idx_sleep):len(idx_awake) + len(idx_sleep) + len(idx_light)],
+            anom_avg_scores[-len(idx_dark):]))
 
     # Plot signals and spectograms with smallest and largest anomaly scores
     sorted_anom_windows_idx = np.argsort(anom_avg_scores)
