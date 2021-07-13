@@ -62,7 +62,7 @@ print(' Processor is %s' % (device))
 h_layer_1 = 8
 h_layer_2 = 16
 h_layer_5 = 1000
-latent_dim = 64
+latent_dim = 3
 kernel_size = (4, 4)
 stride = 1
 
@@ -279,30 +279,37 @@ def plot_reconstruction():
         # Dimension reduction on latent space
         latent_vars = np.array(latent_vars)[np.concatenate([idx_awake, idx_sleep, idx_light, idx_dark], 0)]
         print("Latent space matrix original shape:", latent_vars.shape)
-        latent_vars_embedded = TSNE(n_components=2).fit_transform(latent_vars)
+        if latent_dim > 3:
+            latent_vars_embedded = TSNE(n_components=3).fit_transform(latent_vars)
+        else:
+            latent_vars_embedded = np.copy(latent_vars)
         np.save(results_save_dir + '/latent_tsne_l_{}.npy'.format(latent_dim), latent_vars_embedded)
         print("Latent space matrix reduced shape:", latent_vars_embedded.shape)
 
-    # Plot latent space w.r.t. categories
+    # Plot 3D latent space w.r.t. categories
     plt.figure()
-    _, ax = plt.subplots()
-    ax.scatter(latent_vars_embedded[:len(idx_awake), 0], latent_vars_embedded[:len(idx_awake), 1],
-               c="b", label="Awake", alpha=0.5)
-    ax.scatter(latent_vars_embedded[len(idx_awake):len(idx_awake)+len(idx_sleep), 0],
-               latent_vars_embedded[len(idx_awake):len(idx_awake)+len(idx_sleep), 1],
+    ax = plt.axes(projection='3d')
+    ax.scatter3D(latent_vars_embedded[:len(idx_awake), 0], latent_vars_embedded[:len(idx_awake), 1],
+                 latent_vars_embedded[:len(idx_awake), 2], c="b", label="Awake", alpha=0.5)
+    ax.scatter3D(latent_vars_embedded[len(idx_awake):len(idx_awake) + len(idx_sleep), 0],
+               latent_vars_embedded[len(idx_awake):len(idx_awake) + len(idx_sleep), 1],
+               latent_vars_embedded[len(idx_awake):len(idx_awake) + len(idx_sleep), 2],
                c="r", label="Sleep", alpha=0.5)
     ax.legend()
-    plt.savefig(results_save_dir + '/latent_awake_sleep_l_{}.jpg'.format(latent_dim), bbox_inches='tight')
+    plt.savefig(results_save_dir + '/latent_3D_awake_sleep_l_{}.jpg'.format(latent_dim), bbox_inches='tight')
     plt.close()
     plt.figure()
-    _, ax = plt.subplots()
-    ax.scatter(latent_vars_embedded[len(idx_awake)+len(idx_sleep):len(idx_awake)+len(idx_sleep)+len(idx_light), 0],
-               latent_vars_embedded[len(idx_awake)+len(idx_sleep):len(idx_awake)+len(idx_sleep)+len(idx_light), 1],
-               c="b", label="Light", alpha=0.5)
-    ax.scatter(latent_vars_embedded[-len(idx_dark):, 0], latent_vars_embedded[-len(idx_dark):, 1],
-               c="r", label="Dark", alpha=0.5)
+    ax = plt.axes(projection='3d')
+    ax.scatter3D(latent_vars_embedded[len(idx_awake)+len(idx_sleep):len(idx_awake)+len(idx_sleep)+len(idx_light), 0],
+                 latent_vars_embedded[len(idx_awake)+len(idx_sleep):len(idx_awake)+len(idx_sleep)+len(idx_light), 1],
+                 latent_vars_embedded[len(idx_awake)+len(idx_sleep):len(idx_awake)+len(idx_sleep)+len(idx_light), 2],
+                 c="b", label="Light", alpha=0.5)
+    ax.scatter3D(latent_vars_embedded[-len(idx_dark):, 0],
+                 latent_vars_embedded[-len(idx_dark):, 1],
+                 latent_vars_embedded[-len(idx_dark):, 2],
+                 c="r", label="Dark", alpha=0.5)
     ax.legend()
-    plt.savefig(results_save_dir + '/latent_dark_light_l_{}.jpg'.format(latent_dim), bbox_inches='tight')
+    plt.savefig(results_save_dir + '/latent_3D_dark_light_l_{}.jpg'.format(latent_dim), bbox_inches='tight')
     plt.close()
 
     # Plot anomaly score histograms w.r.t. categories
@@ -340,12 +347,17 @@ def plot_reconstruction():
         _, axs = plt.subplots(int(n_channels / 2), 2)
         for ch in range(int(n_channels/2)):
             axs[ch, 0].plot(T, img[ch], c="b")
-            axs[ch, 0].twinx().plot(T, anom_img[ch], c="r")
+            # axs[ch, 0].twinx().plot(T, anom_img[ch], c="r")
+            axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.25*np.max(anom_img[ch]),
+                            facecolor='green', alpha=0.5)
             axs[ch, 1].plot(T, img[ch + int(n_channels/2)], c="b")
-            axs[ch, 1].twinx().plot(T, anom_img[ch + int(n_channels / 2)], c="r")
+            # axs[ch, 1].twinx().plot(T, anom_img[ch + int(n_channels / 2)], c="r")
+            axs[ch, 1].fill_between(T, np.min(img[ch + int(n_channels / 2)]), np.max(img[ch + int(n_channels / 2)]),
+                            where=anom_img[ch + int(n_channels / 2)] > 0.25*np.max(anom_img[ch + int(n_channels / 2)]),
+                            facecolor='green', alpha=0.5)
             axs[ch, 0].grid()
             axs[ch, 1].grid()
-        axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly Score [0,1] (r) per channel")
+        axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
         plt.savefig(results_save_dir + '/least_anom_signal_{}_l_{}.jpg'.format(file_name, latent_dim), bbox_inches='tight')
         plt.close()
         plt.figure()
@@ -360,6 +372,7 @@ def plot_reconstruction():
         axs[-1, 0].set(xlabel="Time (s) vs. Frequency (Hz)")
         plt.savefig(results_save_dir + '/least_anom_spec_{}_l_{}.jpg'.format(file_name, latent_dim), bbox_inches='tight')
         plt.close()
+
     for window_idx in sorted_anom_windows_idx[-10:]:
         # Plot original unnormalized signal
         img = test_prep_eegs[window_idx].reshape(n_channels, sub_window_size)
@@ -369,12 +382,17 @@ def plot_reconstruction():
         _, axs = plt.subplots(int(n_channels / 2), 2)
         for ch in range(int(n_channels / 2)):
             axs[ch, 0].plot(T, img[ch], c="b")
-            axs[ch, 0].twinx().plot(T, anom_img[ch], c="r")
+            # axs[ch, 0].twinx().plot(T, anom_img[ch], c="r")
+            axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.25*np.max(anom_img[ch]),
+                            facecolor='green', alpha=0.5)
             axs[ch, 1].plot(T, img[ch + int(n_channels / 2)], c="b")
-            axs[ch, 1].twinx().plot(T, anom_img[ch + int(n_channels / 2)], c="r")
+            # axs[ch, 1].twinx().plot(T, anom_img[ch + int(n_channels / 2)], c="r")
+            axs[ch, 1].fill_between(T, np.min(img[ch + int(n_channels / 2)]), np.max(img[ch + int(n_channels / 2)]),
+                            where=anom_img[ch + int(n_channels / 2)] > 0.25*np.max(anom_img[ch + int(n_channels / 2)]),
+                            facecolor='green', alpha=0.5)
             axs[ch, 0].grid()
             axs[ch, 1].grid()
-        axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly Score [0,1] (r) per channel")
+        axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
         plt.savefig(results_save_dir + '/most_anom_signal_{}_l_{}.jpg'.format(file_name, latent_dim), bbox_inches='tight')
         plt.close()
         plt.figure()
