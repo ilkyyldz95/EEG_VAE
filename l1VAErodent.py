@@ -14,12 +14,12 @@ from sklearn.manifold import TSNE
 from scipy.signal import spectrogram
 from scipy.stats import kendalltau, wilcoxon
 
-Restore = True
+Restore = False
 modality = "rodent"
 fs = 2000
-img_size = 24000  # 2.4 second window due to downsampling by 2
+img_size = 48000
 n_channels = 10
-sub_window_size = int(img_size / n_channels)
+sub_window_size = int(img_size / n_channels)  # sub_window_size / (fs / downsample_factor) second window
 downsample_factor = 2
 print("{} channels with window size {}".format(n_channels, sub_window_size))
 
@@ -68,6 +68,7 @@ stride = 1
 
 # VAE training parameters
 batch_size = 128
+checkpoint_epoch = 79
 epoch_num = 350
 beta = 0.8
 
@@ -75,7 +76,7 @@ beta = 0.8
 model_save_dir = "models_{}".format(modality)
 if not os.path.isdir(model_save_dir):
     os.mkdir(model_save_dir)
-PATH_vae = model_save_dir + '/betaVAE_l_%2d' % (latent_dim)
+PATH_vae = model_save_dir + '/betaVAE_l_{}_input_{}'.format(latent_dim, img_size)
 results_save_dir = "results_{}".format(modality)
 if not os.path.isdir(results_save_dir):
     os.mkdir(results_save_dir)
@@ -115,13 +116,13 @@ class VAE(nn.Module):
         self.ebn1 = nn.BatchNorm2d(h_layer_1, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
         self.econv2 = nn.Conv2d(h_layer_1, h_layer_2, kernel_size=kernel_size, stride=stride)
         self.ebn2 = nn.BatchNorm2d(h_layer_2, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
-        self.efc1  = nn.Linear(h_layer_2 * 4 * 2394, h_layer_5)
+        self.efc1  = nn.Linear(h_layer_2 * kernel_size[0] * (sub_window_size-6), h_layer_5)
         self.edrop1 = nn.Dropout(p=0.3, inplace = False)
         self.mu_z  = nn.Linear(h_layer_5, latent_dim)
         self.scale_z = nn.Linear(h_layer_5, latent_dim)
         #
         self.dfc1 = nn.Linear(latent_dim, h_layer_5)
-        self.dfc2 = nn.Linear(h_layer_5, h_layer_2 * 4 * 2394)
+        self.dfc2 = nn.Linear(h_layer_5, h_layer_2 * kernel_size[0] * (sub_window_size-6))
         self.ddrop1 = nn.Dropout(p=0.3, inplace = False)
         self.dconv3 = nn.ConvTranspose2d(h_layer_2, h_layer_1, kernel_size=kernel_size, stride=stride, padding = 0, output_padding = 0)
         self.dbn3 = nn.BatchNorm2d(h_layer_1, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
@@ -154,7 +155,7 @@ class VAE(nn.Module):
         eh1 = self.relu(self.ebn1(self.econv1(x)))
         eh2 = self.relu(self.ebn2(self.econv2(eh1)))
         #print(eh2.shape)
-        eh5 = self.relu(self.edrop1(self.efc1(eh2.view(-1, h_layer_2 * 4 * 2394))))
+        eh5 = self.relu(self.edrop1(self.efc1(eh2.view(-1, h_layer_2 * kernel_size[0] * (sub_window_size-6)))))
         mu_z = self.mu_z(eh5)
         scale_z = self.scale_z(eh5)
         return mu_z, scale_z
@@ -171,7 +172,7 @@ class VAE(nn.Module):
         dh1 = self.relu(self.dfc1(z))
         dh2 = self.relu(self.ddrop1(self.dfc2(dh1)))
         #print(dh2.shape)
-        dh5 = self.relu(self.dbn3(self.dconv3(dh2.view(-1, h_layer_2, 4, 2394))))
+        dh5 = self.relu(self.dbn3(self.dconv3(dh2.view(-1, h_layer_2, kernel_size[0], (sub_window_size-6)))))
         x = self.dconv4(dh5).view(-1, 1, img_size)
         #print(x.shape)
         return self.sigmoid(x)
@@ -201,7 +202,10 @@ def elbo_loss(recon_x, x, mu_z, scale_z):
 if not Restore:
     print("Training...")
     best_loss = 1e10
-    for i in range(epoch_num):
+    # resume from checkpoint
+    if checkpoint_epoch > 0:
+        vae.load_state_dict(torch.load(PATH_vae + "_ep_{}".format(checkpoint_epoch + 1), map_location=lambda storage, loc: storage))
+    for i in np.arange(checkpoint_epoch, epoch_num):
         time_start = time.time()
         loss_vae_value = 0.0
         for batch_indx, data in enumerate(train_loader):
@@ -241,12 +245,12 @@ def plot_reconstruction():
     idx_dark = [idx for idx in range(len(test_files)) if "dark" in test_files[idx] or "Dark" in test_files[idx]]
     
     # Load if results are already saved
-    if os.path.exists(results_save_dir + '/anom_scores_l_{}.npy'.format(latent_dim)) and \
-        os.path.exists(results_save_dir + '/freq_stds_l_{}.npy'.format(latent_dim)) and \
-        os.path.exists(results_save_dir + '/latent_tsne_l_{}.npy'.format(latent_dim)):
-            anom_scores = np.load(results_save_dir + '/anom_scores_l_{}.npy'.format(latent_dim))
-            freq_stds = np.load(results_save_dir + '/freq_stds_l_{}.npy'.format(latent_dim))
-            latent_vars_embedded = np.load(results_save_dir + '/latent_tsne_l_{}.npy'.format(latent_dim))
+    if os.path.exists(results_save_dir + '/anom_scores_l_{}_input_{}.npy'.format(latent_dim, img_size)) and \
+        os.path.exists(results_save_dir + '/freq_stds_l_{}_input_{}.npy'.format(latent_dim, img_size)) and \
+        os.path.exists(results_save_dir + '/latent_tsne_l_{}_input_{}.npy'.format(latent_dim, img_size)):
+            anom_scores = np.load(results_save_dir + '/anom_scores_l_{}_input_{}.npy'.format(latent_dim, img_size))
+            freq_stds = np.load(results_save_dir + '/freq_stds_l_{}_input_{}.npy'.format(latent_dim, img_size))
+            latent_vars_embedded = np.load(results_save_dir + '/latent_tsne_l_{}_input_{}.npy'.format(latent_dim, img_size))
     else:
         latent_vars = []
         anom_scores = []
@@ -273,8 +277,8 @@ def plot_reconstruction():
                 current_psd += np.std(spectrum2D)
             freq_stds.append(current_psd/n_channels)
 
-        np.save(results_save_dir + '/anom_scores_l_{}.npy'.format(latent_dim), anom_scores)
-        np.save(results_save_dir + '/freq_stds_l_{}.npy'.format(latent_dim), freq_stds)
+        np.save(results_save_dir + '/anom_scores_l_{}_input_{}.npy'.format(latent_dim, img_size), anom_scores)
+        np.save(results_save_dir + '/freq_stds_l_{}_input_{}.npy'.format(latent_dim, img_size), freq_stds)
 
         # Dimension reduction on latent space
         latent_vars = np.array(latent_vars)[np.concatenate([idx_awake, idx_sleep, idx_light, idx_dark], 0)]
@@ -283,7 +287,7 @@ def plot_reconstruction():
             latent_vars_embedded = TSNE(n_components=3).fit_transform(latent_vars)
         else:
             latent_vars_embedded = np.copy(latent_vars)
-        np.save(results_save_dir + '/latent_tsne_l_{}.npy'.format(latent_dim), latent_vars_embedded)
+        np.save(results_save_dir + '/latent_tsne_l_{}_input_{}.npy'.format(latent_dim, img_size), latent_vars_embedded)
         print("Latent space matrix reduced shape:", latent_vars_embedded.shape)
 
     # Plot 3D latent space w.r.t. categories
@@ -296,7 +300,7 @@ def plot_reconstruction():
                latent_vars_embedded[len(idx_awake):len(idx_awake) + len(idx_sleep), 2],
                c="r", label="Sleep", alpha=0.5)
     ax.legend()
-    plt.savefig(results_save_dir + '/latent_3D_awake_sleep_l_{}.jpg'.format(latent_dim), bbox_inches='tight')
+    plt.savefig(results_save_dir + '/latent_3D_awake_sleep_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
     plt.close()
     plt.figure()
     ax = plt.axes(projection='3d')
@@ -309,7 +313,7 @@ def plot_reconstruction():
                  latent_vars_embedded[-len(idx_dark):, 2],
                  c="r", label="Dark", alpha=0.5)
     ax.legend()
-    plt.savefig(results_save_dir + '/latent_3D_dark_light_l_{}.jpg'.format(latent_dim), bbox_inches='tight')
+    plt.savefig(results_save_dir + '/latent_3D_dark_light_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
     plt.close()
 
     # Plot anomaly score histograms w.r.t. categories
@@ -321,7 +325,7 @@ def plot_reconstruction():
              facecolor="g", label="Sleep", alpha=0.5)
     ax.legend()
     ax.set(xlabel='Anomaly Score [0,1]')
-    plt.savefig(results_save_dir + '/anom_awake_sleep_l_{}.jpg'.format(latent_dim), bbox_inches='tight')
+    plt.savefig(results_save_dir + '/anom_awake_sleep_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
     plt.close()
     print("P-value between awake and sleep:", wilcoxon(anom_avg_scores[:len(idx_awake)],
             anom_avg_scores[len(idx_awake):len(idx_awake) + len(idx_sleep)]))
@@ -333,7 +337,7 @@ def plot_reconstruction():
              facecolor="g", label="Dark", alpha=0.5)
     ax.legend()
     ax.set(xlabel='Anomaly Score [0,1]')
-    plt.savefig(results_save_dir + '/anom_dark_light_l_{}.jpg'.format(latent_dim), bbox_inches='tight')
+    plt.savefig(results_save_dir + '/anom_dark_light_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
     plt.close()
     print("P-value between light and dark:",
             wilcoxon(anom_avg_scores[len(idx_awake) + len(idx_sleep):len(idx_awake) + len(idx_sleep) + len(idx_light)],
@@ -362,7 +366,7 @@ def plot_reconstruction():
             axs[ch, 0].grid()
             axs[ch, 1].grid()
         axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
-        plt.savefig(results_save_dir + '/least_anom_signal_{}_l_{}.jpg'.format(file_name, latent_dim), bbox_inches='tight')
+        plt.savefig(results_save_dir + '/least_anom_signal_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size), bbox_inches='tight')
         plt.close()
         plt.figure()
         _, axs = plt.subplots(int(n_channels / 2), 2)
@@ -374,7 +378,7 @@ def plot_reconstruction():
             axs[ch, 0].set_ylim([0, 60])
             axs[ch, 1].set_ylim([0, 60])
         axs[-1, 0].set(xlabel="Time (s) vs. Frequency (Hz)")
-        plt.savefig(results_save_dir + '/least_anom_spec_{}_l_{}.jpg'.format(file_name, latent_dim), bbox_inches='tight')
+        plt.savefig(results_save_dir + '/least_anom_spec_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size), bbox_inches='tight')
         plt.close()
 
     for window_idx in sorted_anom_windows_idx[-10:]:
@@ -397,7 +401,7 @@ def plot_reconstruction():
             axs[ch, 0].grid()
             axs[ch, 1].grid()
         axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
-        plt.savefig(results_save_dir + '/most_anom_signal_{}_l_{}.jpg'.format(file_name, latent_dim), bbox_inches='tight')
+        plt.savefig(results_save_dir + '/most_anom_signal_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size), bbox_inches='tight')
         plt.close()
         plt.figure()
         _, axs = plt.subplots(int(n_channels / 2), 2)
@@ -409,7 +413,7 @@ def plot_reconstruction():
             axs[ch, 0].set_ylim([0, 60])
             axs[ch, 1].set_ylim([0, 60])
         axs[-1, 0].set(xlabel="Time (s) vs. Frequency (Hz)")
-        plt.savefig(results_save_dir + '/most_anom_spec_{}_l_{}.jpg'.format(file_name, latent_dim), bbox_inches='tight')
+        plt.savefig(results_save_dir + '/most_anom_spec_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size), bbox_inches='tight')
         plt.close()
 
     # Plot signals with smallest and largest frequency sweeps
