@@ -290,7 +290,7 @@ def plot_reconstruction():
         np.save(results_save_dir + '/latent_tsne_l_{}_input_{}.npy'.format(latent_dim, img_size), latent_vars_embedded)
         print("Latent space matrix reduced shape:", latent_vars_embedded.shape)
 
-    # Plot 3D latent space w.r.t. categories
+    # Plot 3D latent space w.r.t. only categories
     plt.figure()
     ax = plt.axes(projection='3d')
     ax.scatter3D(latent_vars_embedded[:len(idx_awake), 0], latent_vars_embedded[:len(idx_awake), 1],
@@ -316,9 +316,9 @@ def plot_reconstruction():
     plt.savefig(results_save_dir + '/latent_3D_dark_light_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
     plt.close()
 
-    # Plot anomaly score histograms w.r.t. categories
-    anom_scores = np.array(anom_scores)[np.concatenate([idx_awake, idx_sleep, idx_light, idx_dark], 0)]
-    anom_avg_scores = np.median(np.median(anom_scores, -1), -1)
+    # Plot anomaly score histograms w.r.t. only categories
+    anom_avg_scores = np.array(anom_scores)[np.concatenate([idx_awake, idx_sleep, idx_light, idx_dark], 0)]
+    anom_avg_scores = np.median(np.median(anom_avg_scores, -1), -1)
     plt.figure()
     _, ax = plt.subplots()
     plt.hist(anom_avg_scores[:len(idx_awake)], 50, density=True, facecolor="b", label="Awake", alpha=0.5)
@@ -344,7 +344,8 @@ def plot_reconstruction():
             wilcoxon(anom_avg_scores[len(idx_awake) + len(idx_sleep):len(idx_awake) + len(idx_sleep) + len(idx_light)],
             anom_avg_scores[-len(idx_dark):]))
 
-    # Plot signals and spectograms with smallest and largest anomaly scores
+    # Plot signals and spectograms with smallest and largest anomaly scores over all signals
+    anom_avg_scores = np.median(np.median(anom_scores, -1), -1)
     sorted_anom_windows_idx = np.argsort(anom_avg_scores)
     # Zoomed in visualizations
     visualization_window_size = int(0.25 * (fs / downsample_factor))  # 0.25 second windows for visualization
