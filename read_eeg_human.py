@@ -53,9 +53,10 @@ for label_file_name in all_label_file_names:
         # date: year/month/date -> year-month-day
         event_date = str(xlrd.xldate.xldate_as_datetime(event_date, xl_workbook.datemode)).split(" ")[0]
         key = "(" + patient_name + ")_EEG_" + event_date
-        # time: minute:second:milisecond -> seconds
+        # time: 24 hour:minute:second -> seconds
         event_start = str(xlrd.xldate.xldate_as_datetime(event_start, xl_workbook.datemode)).split(" ")[1]
-        event_start_s = float(event_start.split(":")[0]) * 60 + float(event_start.split(":")[1])
+        event_start_s = float(event_start.split(":")[0]) * 3600 + float(event_start.split(":")[1]) * 60 \
+                        + float(event_start.split(":")[2])
         # Read labels
         seizure_label = xl_sheet.cell(label_idx, 3).value
         pd_label = xl_sheet.cell(label_idx, 12).value
