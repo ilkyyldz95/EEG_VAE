@@ -42,64 +42,56 @@ for label_file_name in all_label_file_names:
         print("No label found for", label_file_name)
         training_signal_names.append(label_file_name)
         continue
-    event_date = xl_sheet.cell(label_start_idx, 0).value
-    if not isinstance(event_date, float):
-        print("No label found for", label_file_name)
-        training_signal_names.append(label_file_name)
-        continue
-    else:
-        while isinstance(event_date, float):
-            # read date and time as they are
-            # date: year/month/date -> year-month-day
-            event_date = str(xlrd.xldate.xldate_as_datetime(event_date, xl_workbook.datemode))\
-                                .split(" ")[0]
-            key = "(" + patient_name + ")_EEG_" + event_date
-            # time: minute:second:milisecond -> seconds
-            event_start = xl_sheet.cell(label_start_idx, 1).value
-            event_start = str(xlrd.xldate.xldate_as_datetime(event_start, xl_workbook.datemode))\
-                                .split(" ")[1]
-            event_start_s = float(event_start.split(":")[0]) * 60 + float(event_start.split(":")[1])
-            # Read labels
-            seizure_label = xl_sheet.cell(label_start_idx, 3).value
-            pd_label = xl_sheet.cell(label_start_idx, 12).value
-            rda_label = xl_sheet.cell(label_start_idx, 24).value
-            if isinstance(seizure_label, float) and float(seizure_label) == 1:
-                event_label = "seizure"
-                event_duration = float(xl_sheet.cell(label_start_idx, 10).value)
-                if key in ictal_signal_dict.keys():
-                    ictal_signal_dict[key].append((event_label, event_start_s, event_duration))
-                else:
-                    ictal_signal_dict[key] = [(event_label, event_start_s, event_duration)]
-                print(key, ictal_signal_dict[key])
-            elif isinstance(pd_label, float) and float(pd_label) == 1:
-                event_label = "pd"
-                if not isinstance(xl_sheet.cell(label_start_idx, 20).value, float):
-                    event_duration = float(xl_sheet.cell(label_start_idx, 21).value) * 60  # convert to s
-                else:
-                    event_duration = float(xl_sheet.cell(label_start_idx, 20).value)
-                if key in ictal_signal_dict.keys():
-                    ictal_signal_dict[key].append((event_label, event_start_s, event_duration))
-                else:
-                    ictal_signal_dict[key] = [(event_label, event_start_s, event_duration)]
-                print(key, ictal_signal_dict[key])
-            elif isinstance(rda_label, float) and float(rda_label) == 1:
-                event_label = "rda"
-                if not isinstance(xl_sheet.cell(label_start_idx, 32).value, float):
-                    event_duration = float(xl_sheet.cell(label_start_idx, 33).value) * 60  # convert to s
-                else:
-                    event_duration = float(xl_sheet.cell(label_start_idx, 32).value)
-                if key in ictal_signal_dict.keys():
-                    ictal_signal_dict[key].append((event_label, event_start_s, event_duration))
-                else:
-                    ictal_signal_dict[key] = [(event_label, event_start_s, event_duration)]
-                print(key, ictal_signal_dict[key])
+    for label_idx in np.arange(label_start_idx, xl_sheet.nrows):
+        event_date = xl_sheet.cell(label_idx, 0).value
+        event_start = xl_sheet.cell(label_idx, 1).value
+        if not isinstance(event_date, float) or not isinstance(event_start, float):
+            print("No label found for", label_file_name)
+            training_signal_names.append(label_file_name)
+            continue
+        # read date and time as they are
+        # date: year/month/date -> year-month-day
+        event_date = str(xlrd.xldate.xldate_as_datetime(event_date, xl_workbook.datemode)).split(" ")[0]
+        key = "(" + patient_name + ")_EEG_" + event_date
+        # time: minute:second:milisecond -> seconds
+        event_start = str(xlrd.xldate.xldate_as_datetime(event_start, xl_workbook.datemode)).split(" ")[1]
+        event_start_s = float(event_start.split(":")[0]) * 60 + float(event_start.split(":")[1])
+        # Read labels
+        seizure_label = xl_sheet.cell(label_idx, 3).value
+        pd_label = xl_sheet.cell(label_idx, 12).value
+        rda_label = xl_sheet.cell(label_idx, 24).value
+        if isinstance(seizure_label, float) and float(seizure_label) == 1:
+            event_label = "seizure"
+            event_duration = float(xl_sheet.cell(label_idx, 10).value)
+            if key in ictal_signal_dict.keys():
+                ictal_signal_dict[key].append((event_label, event_start_s, event_duration))
             else:
-                print("No label found for", label_file_name, event_date, event_start)
-            # move to the next row
-            label_start_idx += 1
-            if label_start_idx >= xl_sheet.nrows:
-                break
-            event_date = xl_sheet.cell(label_start_idx, 0).value
+                ictal_signal_dict[key] = [(event_label, event_start_s, event_duration)]
+            print(key, ictal_signal_dict[key])
+        elif isinstance(pd_label, float) and float(pd_label) == 1:
+            event_label = "pd"
+            if not isinstance(xl_sheet.cell(label_idx, 20).value, float):
+                event_duration = float(xl_sheet.cell(label_idx, 21).value) * 60  # convert to s
+            else:
+                event_duration = float(xl_sheet.cell(label_idx, 20).value)
+            if key in ictal_signal_dict.keys():
+                ictal_signal_dict[key].append((event_label, event_start_s, event_duration))
+            else:
+                ictal_signal_dict[key] = [(event_label, event_start_s, event_duration)]
+            print(key, ictal_signal_dict[key])
+        elif isinstance(rda_label, float) and float(rda_label) == 1:
+            event_label = "rda"
+            if not isinstance(xl_sheet.cell(label_idx, 32).value, float):
+                event_duration = float(xl_sheet.cell(label_idx, 33).value) * 60  # convert to s
+            else:
+                event_duration = float(xl_sheet.cell(label_idx, 32).value)
+            if key in ictal_signal_dict.keys():
+                ictal_signal_dict[key].append((event_label, event_start_s, event_duration))
+            else:
+                ictal_signal_dict[key] = [(event_label, event_start_s, event_duration)]
+            print(key, ictal_signal_dict[key])
+        else:
+            print("No label found for", label_file_name, event_date, event_start)
 
 """
 modality = "rodent_eeg"  # staba and monash
