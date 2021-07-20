@@ -3,7 +3,6 @@ from __future__ import division
 from __future__ import print_function
 import numpy as np
 import os
-import time
 from mne.io import RawArray, read_raw_edf
 from os import listdir
 from os.path import isfile, join
@@ -13,10 +12,11 @@ import pickle
 from scipy.signal import butter, lfilter, freqz
 import xlrd, datetime
 
-modality = "human"
-fs = 2000.0
+fs = 250.0
 lowcut = 0.5
 highcut = 50.0
+signal_dir = "/ifs/loni/faculty/dduncan/epibios_collab/iyildiz/human_eeg/"
+label_dir = "/ifs/loni/faculty/dduncan/epibios_collab/iyildiz/human_eeg_completed_reviews/"
 
 def butter_bandpass(lowcut, highcut, fs, order=4):
     nyq = 0.5 * fs
@@ -25,14 +25,39 @@ def butter_bandpass(lowcut, highcut, fs, order=4):
     b, a = butter(order, [low, high], btype='band')
     return b, a
 
-
 def butter_bandpass_filter(data, lowcut, highcut, fs, order=4):
     b, a = butter_bandpass(lowcut, highcut, fs, order=order)
     y = lfilter(b, a, data)
     return y
 
-signal_dir = "/ifs/loni/faculty/dduncan/epibios_collab/iyildiz/human_eeg/"
-label_dir = "/ifs/loni/faculty/dduncan/epibios_collab/iyildiz/human_eeg_completed_reviews/"
+def prepare_one_signal(patient, file_name, event_windows, eegs, files):
+    try:
+        tmp = read_raw_edf(file_name, preload=True)
+        print(patient, "has signal", file_name)
+        current_fs = tmp.info['sfreq']
+        # Convert the read data to pandas DataFrame data format
+        tmp = tmp.to_data_frame()
+        # convert to numpy's unique data format, each signal may have a different length!
+        # signal: channels x time points
+        signal = tmp.values.T
+        print("Number of channels: ", len(signal))
+        for (event_start_s, event_duration_s) in event_windows:
+            print("Slicing window", event_start_s, event_start_s + event_duration_s)
+            # slice to the desired window
+            sliced_signal = signal[:, int(current_fs * event_start_s):
+                            int(current_fs * (event_start_s + event_duration_s))]
+            # downsample if necessary
+            if current_fs > 1.5 * fs:
+                downsampling_factor = int(current_fs / fs)
+                print(patient, "signal downsample with factor", downsampling_factor)
+                sliced_signal = sliced_signal[:, ::downsampling_factor]
+            # Filter in 0.5-50 Hz
+            current_eeg = butter_bandpass_filter(sliced_signal, lowcut, highcut, fs)
+            eegs.append(current_eeg)
+            files.append(file_name)
+    except (ValueError, NotImplementedError):
+        print(patient, "signal cannot be loaded with", file_name)
+    return eegs, files
 
 # Move all reviewed raw .edf files to the desired directory
 if not os.path.isdir(signal_dir):
@@ -61,14 +86,14 @@ for label_file_name in all_label_file_names:
     # Patients with no events become training data: no review / one line review with no event
     if xl_sheet.nrows <= label_start_idx:
         print("No label found for", patient_name)
-        training_signal_keys.append(patient_name)
+        training_signal_keys.append("(" + patient_name + ")_EEG_")
         continue
     elif xl_sheet.nrows == label_start_idx + 1:
         event_date = xl_sheet.cell(label_start_idx, 0).value
         event_start = xl_sheet.cell(label_start_idx, 1).value
         if (not isinstance(event_date, float)) or (not isinstance(event_start, float)):
             print("No label found for", patient_name)
-            training_signal_keys.append(patient_name)
+            training_signal_keys.append("(" + patient_name + ")_EEG_")
             continue
     for label_idx in np.arange(label_start_idx, xl_sheet.nrows):
         # read date and time as they are
@@ -87,7 +112,7 @@ for label_file_name in all_label_file_names:
                         + float(event_start.split(":")[2])
         # take the chunk until the first event of each patient & date key as normal
         if key not in test_signal_keys:
-            test_normal_signal_dict[key] = (0, event_start_s)
+            test_normal_signal_dict[key] = [(0, event_start_s)]
             print("* Test normal", key, test_normal_signal_dict[key])
             test_signal_keys.append(key)
         # Read event labels
@@ -123,60 +148,108 @@ for label_file_name in all_label_file_names:
             print("* RDA found for", key, rda_signal_dict[key])
         else:
             print("No label found for row", label_idx + 1)
-print("Training signals count", len(training_signal_keys))
-print("Test normal signals count", len(test_normal_signal_dict.keys()))
-print("Seizure signals count", np.sum([len(val_list)
+print("=> Training signals reviewed", len(training_signal_keys))
+print("=> Test normal signals reviewed", len(test_normal_signal_dict.keys()))
+print("=> Seizure signals reviewed", np.sum([len(val_list)
                                        for val_list in seizure_signal_dict.values()]))
-print("PD signals count", np.sum([len(val_list)
+print("=> PD signals reviewed", np.sum([len(val_list)
                                        for val_list in pd_signal_dict.values()]))
-print("RDA signals count", np.sum([len(val_list)
+print("=> RDA signals reviewed", np.sum([len(val_list)
                                        for val_list in rda_signal_dict.values()]))
 
+# Read all EEG data into numpy arrays
+EEG_files = [join(signal_dir, f) for f in listdir(signal_dir)
+             if isfile(join(signal_dir, f)) and (".edf" in f or ".EDF" in f)]
 
-"""
-# Read all EEG data
-input_dir = "../{}".format(modality)
-EEG_files = [join(input_dir, f) for f in listdir(input_dir) if isfile(join(input_dir, f)) and
-             (".edf" in f or ".EDF" in f)]
-print("{} EEG files found for modality {}".format(len(EEG_files), modality))
+train_eegs = []
+train_files = []
+test_normal_eegs = []
+test_normal_files = []
+seizure_eegs = []
+seizure_files = []
+pd_eegs = []
+pd_files = []
+rda_eegs = []
+rda_files = []
 
-all_eegs = []
-all_files = []
-for file_name in EEG_files:
-    tmp = read_raw_edf(file_name, preload=True)
-    # Convert the read data to pandas DataFrame data format
-    tmp = tmp.to_data_frame()
-    # convert to numpy's unique data format, each signal may have a different length!
-    # channels x time points
-    current_eeg = tmp.values.T
-    all_eegs.append(current_eeg)
-    all_files.append(file_name)
-    print("Number of channels: ", len(current_eeg))
+# Read eegs as numpy arrays and bandpass filter
+print("*** Processing training signals")
+for train_patient in training_signal_keys:
+    for file_name in EEG_files:
+        if train_patient in file_name:
+            try:
+                tmp = read_raw_edf(file_name, preload=True)
+                print(train_patient, "has signal", file_name)
+                # Check sampling frequency
+                if tmp.info['sfreq'] > 1.5 * fs:
+                    downsampling_factor = int(tmp.info['sfreq'] / fs)
+                    print(train_patient, "signal downsample with factor", downsampling_factor)
+                else:
+                    downsampling_factor = 1
+                # Convert the read data to pandas DataFrame data format
+                tmp = tmp.to_data_frame()
+                # convert to numpy's unique data format, each signal may have a different length!
+                # downsample if necessary
+                # signal: channels x time points
+                signal = tmp.values.T[:, ::downsampling_factor]
+                # Filter in 0.5-50 Hz
+                current_eeg = butter_bandpass_filter(signal, lowcut, highcut, fs)
+                print("Number of channels: ", len(current_eeg))
+                train_eegs.append(current_eeg)
+                train_files.append(file_name)
+            except (ValueError, NotImplementedError):
+                print(train_patient, "signal cannot be loaded with", file_name)
+with open('human_train_eegs.pickle', 'wb') as handle:
+    pickle.dump(train_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
+with open('human_train_files.pickle', 'wb') as handle:
+    pickle.dump(train_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-# Save raw EEG data
-with open('{}_all_raw_eegs.pickle'.format(modality), 'wb') as handle:
-    pickle.dump(all_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
-with open('{}_all_eeg_files.pickle'.format(modality), 'wb') as handle:
-    pickle.dump(all_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
+print("*** Processing test normal signals")
+for test_normal_patient, test_normal_windows in test_normal_signal_dict.items():
+    for file_name in EEG_files:
+        if test_normal_patient in file_name:
+            test_normal_eegs, test_normal_files = prepare_one_signal(test_normal_patient, file_name,
+                            test_normal_windows, test_normal_eegs, test_normal_files)
+with open('human_test_normal_eegs.pickle', 'wb') as handle:
+    pickle.dump(test_normal_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
+with open('human_test_normal_files.pickle', 'wb') as handle:
+    pickle.dump(test_normal_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-# Bandpass filter all EEG data
-prep_eegs = []
-for signal in all_eegs:
-    y = butter_bandpass_filter(signal, lowcut, highcut, fs)
-    # check filtering success
-    #n = len(y)  # length of the signal
-    #k = np.arange(n)
-    #T = n / fs
-    #frq = k / T  # two sides frequency range
-    #frq = frq[:len(frq) // 2]  # one side frequency range
-    #Y = np.fft.fft(y) / n  # dft and normalization
-    #Y = np.abs(Y[:n // 2])
-    #print("Output Frequencies:", frq)
-    #print("Output Amplitudes:", Y)
-    prep_eegs.append(y)
-    print("{} signals filtered".format(len(prep_eegs)))
+print("*** Processing seizure signals")
+for seizure_patient, seizure_windows in seizure_signal_dict.items():
+    for file_name in EEG_files:
+        if seizure_patient in file_name:
+            seizure_eegs, seizure_files = prepare_one_signal(seizure_patient, file_name,
+                            seizure_windows, seizure_eegs, seizure_files)
+with open('human_seizure_eegs.pickle', 'wb') as handle:
+    pickle.dump(seizure_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
+with open('human_seizure_files.pickle', 'wb') as handle:
+    pickle.dump(seizure_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-# Save preprocessed EEG data
-with open('{}_preprocessed_eegs.pickle'.format(modality), 'wb') as handle:
-    pickle.dump(prep_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
-"""
+print("*** Processing pd signals")
+for pd_patient, pd_windows in pd_signal_dict.items():
+    for file_name in EEG_files:
+        if pd_patient in file_name:
+            pd_eegs, pd_files = prepare_one_signal(pd_patient, file_name,
+                            pd_windows, pd_eegs, pd_files)
+with open('human_pd_eegs.pickle', 'wb') as handle:
+    pickle.dump(pd_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
+with open('human_pd_files.pickle', 'wb') as handle:
+    pickle.dump(pd_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+print("*** Processing rda signals")
+for rda_patient, rda_windows in rda_signal_dict.items():
+    for file_name in EEG_files:
+        if rda_patient in file_name:
+            rda_eegs, rda_files = prepare_one_signal(rda_patient, file_name,
+                            rda_windows, rda_eegs, rda_files)
+with open('human_rda_eegs.pickle', 'wb') as handle:
+    pickle.dump(rda_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
+with open('human_rda_files.pickle', 'wb') as handle:
+    pickle.dump(rda_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+print("=> Training signals saved", len(train_eegs))
+print("=> Test normal signals saved", len(test_normal_eegs))
+print("=> Seizure signals saved", len(seizure_eegs))
+print("=> PD signals saved", len(pd_eegs))
+print("=> RDA signals saved", len(rda_eegs))
