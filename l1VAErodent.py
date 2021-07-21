@@ -345,13 +345,15 @@ def plot_reconstruction():
             anom_avg_scores[-len(idx_dark):]))
 
     # Plot signals and spectograms with smallest and largest anomaly scores over all signals
-    anom_avg_scores = np.median(np.median(anom_scores, -1), -1)
-    sorted_anom_windows_idx = np.argsort(anom_avg_scores)
+    ### AWAKE
+    anom_avg_scores = np.array(anom_scores)[idx_awake]
+    anom_avg_scores = np.median(np.median(anom_avg_scores, -1), -1)
+    sorted_anom_windows_idx = np.array(idx_awake)[np.argsort(anom_avg_scores)]
     # Zoomed in visualizations
     visualization_window_size = int(0.25 * (fs / downsample_factor))  # 0.25 second windows for visualization
     num_of_visualization_windows = int(np.floor(sub_window_size / visualization_window_size))
     T = np.arange(1, visualization_window_size + 1) / (fs / downsample_factor)
-    for window_idx in sorted_anom_windows_idx[:5]:
+    for window_idx in sorted_anom_windows_idx[:2]:
         for vis_window_idx in range(num_of_visualization_windows):
             # Plot original unnormalized signal for each time window of length visualization_window_size
             img = test_prep_eegs[window_idx, :,
@@ -371,11 +373,11 @@ def plot_reconstruction():
                             facecolor='green', alpha=0.5)
                 axs[ch, 0].set(ylabel=r'$\mu V$')
             axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
-            plt.savefig(results_save_dir + '/least_anom_signal_{}_{}_l_{}_input_{}.pdf'
+            plt.savefig(results_save_dir + '/least_anom_awake_{}_{}_l_{}_input_{}.pdf'
                         .format(file_name, vis_window_idx, latent_dim, img_size), bbox_inches='tight')
             plt.close()
 
-    for window_idx in sorted_anom_windows_idx[-5:]:
+    for window_idx in sorted_anom_windows_idx[-2:]:
         for vis_window_idx in range(num_of_visualization_windows):
             # Plot original unnormalized signal for each time window of length visualization_window_size
             img = test_prep_eegs[window_idx, :,
@@ -395,13 +397,13 @@ def plot_reconstruction():
                             facecolor='green', alpha=0.5)
                 axs[ch, 0].set(ylabel=r'$\mu V$')
             axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
-            plt.savefig(results_save_dir + '/most_anom_signal_{}_{}_l_{}_input_{}.pdf'
+            plt.savefig(results_save_dir + '/most_anom_awake_{}_{}_l_{}_input_{}.pdf'
                         .format(file_name, vis_window_idx, latent_dim, img_size), bbox_inches='tight')
             plt.close()
 
     # Full time window visualizations
     T = np.arange(1, sub_window_size + 1) / (fs / downsample_factor)
-    for window_idx in sorted_anom_windows_idx[:5]:
+    for window_idx in sorted_anom_windows_idx[:2]:
         # Plot original unnormalized signal
         img = test_prep_eegs[window_idx]
         anom_img = anom_scores[window_idx]
@@ -419,9 +421,10 @@ def plot_reconstruction():
             axs[ch, 0].set(ylabel=r'$\mu V$')
         axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
         plt.savefig(
-            results_save_dir + '/least_anom_signal_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
+            results_save_dir + '/least_anom_awake_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
             bbox_inches='tight')
         plt.close()
+        """
         plt.figure()
         _, axs = plt.subplots(int(n_channels / 2), 2)
         for ch in range(int(n_channels / 2)):
@@ -435,8 +438,9 @@ def plot_reconstruction():
         plt.savefig(results_save_dir + '/least_anom_spec_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
                     bbox_inches='tight')
         plt.close()
+        """
 
-    for window_idx in sorted_anom_windows_idx[-5:]:
+    for window_idx in sorted_anom_windows_idx[-2:]:
         # Plot original unnormalized signal
         img = test_prep_eegs[window_idx]
         anom_img = anom_scores[window_idx]
@@ -453,9 +457,10 @@ def plot_reconstruction():
                             facecolor='green', alpha=0.5)
             axs[ch, 0].set(ylabel=r'$\mu V$')
         axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
-        plt.savefig(results_save_dir + '/most_anom_signal_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
+        plt.savefig(results_save_dir + '/most_anom_awake_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
                     bbox_inches='tight')
         plt.close()
+        """
         plt.figure()
         _, axs = plt.subplots(int(n_channels / 2), 2)
         for ch in range(int(n_channels / 2)):
@@ -469,6 +474,137 @@ def plot_reconstruction():
         plt.savefig(results_save_dir + '/most_anom_spec_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
                     bbox_inches='tight')
         plt.close()
+        """
+    ### SLEEP
+    anom_avg_scores = np.array(anom_scores)[idx_sleep]
+    anom_avg_scores = np.median(np.median(anom_avg_scores, -1), -1)
+    sorted_anom_windows_idx = np.array(idx_sleep)[np.argsort(anom_avg_scores)]
+    # Zoomed in visualizations
+    visualization_window_size = int(0.25 * (fs / downsample_factor))  # 0.25 second windows for visualization
+    num_of_visualization_windows = int(np.floor(sub_window_size / visualization_window_size))
+    T = np.arange(1, visualization_window_size + 1) / (fs / downsample_factor)
+    for window_idx in sorted_anom_windows_idx[:2]:
+        for vis_window_idx in range(num_of_visualization_windows):
+            # Plot original unnormalized signal for each time window of length visualization_window_size
+            img = test_prep_eegs[window_idx, :,
+                  vis_window_idx * visualization_window_size:(vis_window_idx + 1) * visualization_window_size]
+            anom_img = anom_scores[window_idx, :,
+                  vis_window_idx * visualization_window_size:(vis_window_idx + 1) * visualization_window_size]
+            file_name = test_files[window_idx]
+            plt.figure()
+            _, axs = plt.subplots(int(n_channels / 2), 2)
+            for ch in range(int(n_channels / 2)):
+                axs[ch, 0].plot(T, img[ch], c="b", linewidth=0.5)
+                axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.25 * np.max(anom_img[ch]),
+                            facecolor='green', alpha=0.5)
+                axs[ch, 1].plot(T, img[ch + int(n_channels / 2)], c="b", linewidth=0.5)
+                axs[ch, 1].fill_between(T, np.min(img[ch + int(n_channels / 2)]), np.max(img[ch + int(n_channels / 2)]),
+                            where=anom_img[ch + int(n_channels / 2)] > 0.25 * np.max(anom_img[ch + int(n_channels / 2)]),
+                            facecolor='green', alpha=0.5)
+                axs[ch, 0].set(ylabel=r'$\mu V$')
+            axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
+            plt.savefig(results_save_dir + '/least_anom_sleep_{}_{}_l_{}_input_{}.pdf'
+                        .format(file_name, vis_window_idx, latent_dim, img_size), bbox_inches='tight')
+            plt.close()
+
+    for window_idx in sorted_anom_windows_idx[-2:]:
+        for vis_window_idx in range(num_of_visualization_windows):
+            # Plot original unnormalized signal for each time window of length visualization_window_size
+            img = test_prep_eegs[window_idx, :,
+                        vis_window_idx * visualization_window_size:(vis_window_idx + 1) * visualization_window_size]
+            anom_img = anom_scores[window_idx, :,
+                       vis_window_idx * visualization_window_size:(vis_window_idx + 1) * visualization_window_size]
+            file_name = test_files[window_idx]
+            plt.figure()
+            _, axs = plt.subplots(int(n_channels / 2), 2)
+            for ch in range(int(n_channels / 2)):
+                axs[ch, 0].plot(T, img[ch], c="b", linewidth=0.5)
+                axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.25 * np.max(anom_img[ch]),
+                            facecolor='green', alpha=0.5)
+                axs[ch, 1].plot(T, img[ch + int(n_channels / 2)], c="b", linewidth=0.5)
+                axs[ch, 1].fill_between(T, np.min(img[ch + int(n_channels / 2)]), np.max(img[ch + int(n_channels / 2)]),
+                            where=anom_img[ch + int(n_channels / 2)] > 0.25 * np.max(anom_img[ch + int(n_channels / 2)]),
+                            facecolor='green', alpha=0.5)
+                axs[ch, 0].set(ylabel=r'$\mu V$')
+            axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
+            plt.savefig(results_save_dir + '/most_anom_sleep_{}_{}_l_{}_input_{}.pdf'
+                        .format(file_name, vis_window_idx, latent_dim, img_size), bbox_inches='tight')
+            plt.close()
+
+    # Full time window visualizations
+    T = np.arange(1, sub_window_size + 1) / (fs / downsample_factor)
+    for window_idx in sorted_anom_windows_idx[:2]:
+        # Plot original unnormalized signal
+        img = test_prep_eegs[window_idx]
+        anom_img = anom_scores[window_idx]
+        file_name = test_files[window_idx]
+        plt.figure()
+        _, axs = plt.subplots(int(n_channels / 2), 2)
+        for ch in range(int(n_channels / 2)):
+            axs[ch, 0].plot(T, img[ch], c="b", linewidth=0.5)
+            axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.25 * np.max(anom_img[ch]),
+                            facecolor='green', alpha=0.5)
+            axs[ch, 1].plot(T, img[ch + int(n_channels / 2)], c="b", linewidth=0.5)
+            axs[ch, 1].fill_between(T, np.min(img[ch + int(n_channels / 2)]), np.max(img[ch + int(n_channels / 2)]),
+                            where=anom_img[ch + int(n_channels / 2)] > 0.25 * np.max(anom_img[ch + int(n_channels / 2)]),
+                            facecolor='green', alpha=0.5)
+            axs[ch, 0].set(ylabel=r'$\mu V$')
+        axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
+        plt.savefig(
+            results_save_dir + '/least_anom_sleep_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
+            bbox_inches='tight')
+        plt.close()
+        """
+        plt.figure()
+        _, axs = plt.subplots(int(n_channels / 2), 2)
+        for ch in range(int(n_channels / 2)):
+            axs[ch, 0].specgram(img[ch], Fs=fs / downsample_factor)
+            axs[ch, 1].specgram(img[ch + int(n_channels / 2)], Fs=fs / downsample_factor)
+            axs[ch, 0].grid()
+            axs[ch, 1].grid()
+            axs[ch, 0].set_ylim([0, 60])
+            axs[ch, 1].set_ylim([0, 60])
+        axs[-1, 0].set(xlabel="Time (s) vs. Frequency (Hz)")
+        plt.savefig(results_save_dir + '/least_anom_spec_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
+                    bbox_inches='tight')
+        plt.close()
+        """
+
+    for window_idx in sorted_anom_windows_idx[-2:]:
+        # Plot original unnormalized signal
+        img = test_prep_eegs[window_idx]
+        anom_img = anom_scores[window_idx]
+        file_name = test_files[window_idx]
+        plt.figure()
+        _, axs = plt.subplots(int(n_channels / 2), 2)
+        for ch in range(int(n_channels / 2)):
+            axs[ch, 0].plot(T, img[ch], c="b", linewidth=0.5)
+            axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.25 * np.max(anom_img[ch]),
+                            facecolor='green', alpha=0.5)
+            axs[ch, 1].plot(T, img[ch + int(n_channels / 2)], c="b", linewidth=0.5)
+            axs[ch, 1].fill_between(T, np.min(img[ch + int(n_channels / 2)]), np.max(img[ch + int(n_channels / 2)]),
+                            where=anom_img[ch + int(n_channels / 2)] > 0.25 * np.max(anom_img[ch + int(n_channels / 2)]),
+                            facecolor='green', alpha=0.5)
+            axs[ch, 0].set(ylabel=r'$\mu V$')
+        axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
+        plt.savefig(results_save_dir + '/most_anom_sleep_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
+                    bbox_inches='tight')
+        plt.close()
+        """
+        plt.figure()
+        _, axs = plt.subplots(int(n_channels / 2), 2)
+        for ch in range(int(n_channels / 2)):
+            axs[ch, 0].specgram(img[ch], Fs=fs / downsample_factor)
+            axs[ch, 1].specgram(img[ch + int(n_channels / 2)], Fs=fs / downsample_factor)
+            axs[ch, 0].grid()
+            axs[ch, 1].grid()
+            axs[ch, 0].set_ylim([0, 60])
+            axs[ch, 1].set_ylim([0, 60])
+        axs[-1, 0].set(xlabel="Time (s) vs. Frequency (Hz)")
+        plt.savefig(results_save_dir + '/most_anom_spec_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
+                    bbox_inches='tight')
+        plt.close()
+        """
 
 if Restore:
     plot_reconstruction()
