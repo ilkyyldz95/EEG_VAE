@@ -13,6 +13,7 @@ from scipy.signal import butter, lfilter, freqz
 import xlrd, datetime
 
 fs = 250.0
+n_channels = 18
 lowcut = 0.5
 highcut = 50.0
 signal_dir = "/ifs/loni/faculty/dduncan/epibios_collab/iyildiz/human_eeg/"
@@ -30,7 +31,8 @@ def butter_bandpass_filter(data, lowcut, highcut, fs, order=4):
     y = lfilter(b, a, data)
     return y
 
-def prepare_one_signal(patient, file_name, event_windows, eegs, files):
+def prepare_one_signal(patient, file_name, event_windows, eegs, files,
+                       lowcut, highcut, fs, n_channels):
     try:
         tmp = read_raw_edf(file_name, preload=True)
         print(patient, "has signal", file_name)
@@ -41,6 +43,8 @@ def prepare_one_signal(patient, file_name, event_windows, eegs, files):
         # signal: channels x time points
         signal = tmp.values.T
         print("Number of channels: ", len(signal))
+        if n_channels > len(signal):
+            n_channels = len(signal)
         for (event_start_s, event_duration_s) in event_windows:
             print("Slicing window", event_start_s, event_start_s + event_duration_s)
             # slice to the desired window
@@ -57,7 +61,7 @@ def prepare_one_signal(patient, file_name, event_windows, eegs, files):
             files.append(file_name)
     except (ValueError, NotImplementedError):
         print(patient, "signal cannot be loaded with", file_name)
-    return eegs, files
+    return eegs, files, n_channels
 
 # Move all reviewed raw .edf files to the desired directory
 if not os.path.isdir(signal_dir):
@@ -180,21 +184,22 @@ for train_patient in training_signal_keys:
             try:
                 tmp = read_raw_edf(file_name, preload=True)
                 print(train_patient, "has signal", file_name)
-                # Check sampling frequency
-                if tmp.info['sfreq'] > 1.5 * fs:
-                    downsampling_factor = int(tmp.info['sfreq'] / fs)
-                    print(train_patient, "signal downsample with factor", downsampling_factor)
-                else:
-                    downsampling_factor = 1
+                current_fs = tmp.info['sfreq']
                 # Convert the read data to pandas DataFrame data format
                 tmp = tmp.to_data_frame()
                 # convert to numpy's unique data format, each signal may have a different length!
-                # downsample if necessary
                 # signal: channels x time points
-                signal = tmp.values.T[:, ::downsampling_factor]
+                signal = tmp.values.T
+                print("Number of channels: ", len(signal))
+                if n_channels > len(signal):
+                    n_channels = len(signal)
+                # downsample if necessary
+                if current_fs > 1.5 * fs:
+                    downsampling_factor = int(current_fs / fs)
+                    print(train_patient, "signal downsample with factor", downsampling_factor)
+                    signal = signal[:, ::downsampling_factor]
                 # Filter in 0.5-50 Hz
                 current_eeg = butter_bandpass_filter(signal, lowcut, highcut, fs)
-                print("Number of channels: ", len(current_eeg))
                 train_eegs.append(current_eeg)
                 train_files.append(file_name)
             except (ValueError, NotImplementedError):
@@ -208,8 +213,9 @@ print("*** Processing test normal signals")
 for test_normal_patient, test_normal_windows in test_normal_signal_dict.items():
     for file_name in EEG_files:
         if test_normal_patient in file_name:
-            test_normal_eegs, test_normal_files = prepare_one_signal(test_normal_patient, file_name,
-                            test_normal_windows, test_normal_eegs, test_normal_files)
+            test_normal_eegs, test_normal_files, n_channels = prepare_one_signal(test_normal_patient, file_name,
+                            test_normal_windows, test_normal_eegs, test_normal_files,
+                            lowcut, highcut, fs, n_channels)
 with open('human_test_normal_eegs.pickle', 'wb') as handle:
     pickle.dump(test_normal_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
 with open('human_test_normal_files.pickle', 'wb') as handle:
@@ -219,8 +225,9 @@ print("*** Processing seizure signals")
 for seizure_patient, seizure_windows in seizure_signal_dict.items():
     for file_name in EEG_files:
         if seizure_patient in file_name:
-            seizure_eegs, seizure_files = prepare_one_signal(seizure_patient, file_name,
-                            seizure_windows, seizure_eegs, seizure_files)
+            seizure_eegs, seizure_files, n_channels = prepare_one_signal(seizure_patient, file_name,
+                            seizure_windows, seizure_eegs, seizure_files,
+                            lowcut, highcut, fs, n_channels)
 with open('human_seizure_eegs.pickle', 'wb') as handle:
     pickle.dump(seizure_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
 with open('human_seizure_files.pickle', 'wb') as handle:
@@ -230,8 +237,8 @@ print("*** Processing pd signals")
 for pd_patient, pd_windows in pd_signal_dict.items():
     for file_name in EEG_files:
         if pd_patient in file_name:
-            pd_eegs, pd_files = prepare_one_signal(pd_patient, file_name,
-                            pd_windows, pd_eegs, pd_files)
+            pd_eegs, pd_files, n_channels = prepare_one_signal(pd_patient, file_name,
+                            pd_windows, pd_eegs, pd_files, lowcut, highcut, fs, n_channels)
 with open('human_pd_eegs.pickle', 'wb') as handle:
     pickle.dump(pd_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
 with open('human_pd_files.pickle', 'wb') as handle:
@@ -241,8 +248,8 @@ print("*** Processing rda signals")
 for rda_patient, rda_windows in rda_signal_dict.items():
     for file_name in EEG_files:
         if rda_patient in file_name:
-            rda_eegs, rda_files = prepare_one_signal(rda_patient, file_name,
-                            rda_windows, rda_eegs, rda_files)
+            rda_eegs, rda_files, n_channels = prepare_one_signal(rda_patient, file_name,
+                            rda_windows, rda_eegs, rda_files, lowcut, highcut, fs, n_channels)
 with open('human_rda_eegs.pickle', 'wb') as handle:
     pickle.dump(rda_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
 with open('human_rda_files.pickle', 'wb') as handle:

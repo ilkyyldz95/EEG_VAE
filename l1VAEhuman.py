@@ -14,11 +14,10 @@ from sklearn.manifold import TSNE
 from scipy.signal import spectrogram
 from scipy.stats import wilcoxon
 
-Restore = True
-modality = "rodent"
-fs = 2000
+Restore = False
+fs = 250.0
 img_size = 24000
-n_channels = 10
+n_channels = 18
 sub_window_size = int(img_size / n_channels)  # sub_window_size / (fs / downsample_factor) second window
 downsample_factor = 2
 print("{} channels with window size {}".format(n_channels, sub_window_size))
