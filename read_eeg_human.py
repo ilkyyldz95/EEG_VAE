@@ -13,11 +13,11 @@ from scipy.signal import butter, lfilter, freqz
 import xlrd, datetime
 
 fs = 250.0
-n_channels = 18
 lowcut = 0.5
 highcut = 50.0
 signal_dir = "/ifs/loni/faculty/dduncan/epibios_collab/iyildiz/human_eeg/"
 label_dir = "/ifs/loni/faculty/dduncan/epibios_collab/iyildiz/human_eeg_completed_reviews/"
+max_signal_length_s = 3600
 
 def butter_bandpass(lowcut, highcut, fs, order=4):
     nyq = 0.5 * fs
@@ -32,7 +32,7 @@ def butter_bandpass_filter(data, lowcut, highcut, fs, order=4):
     return y
 
 def prepare_one_signal(patient, file_name, event_windows, eegs, files,
-                       lowcut, highcut, fs, n_channels):
+                       lowcut, highcut, fs):
     try:
         tmp = read_raw_edf(file_name, preload=True)
         print(patient, "has signal", file_name)
@@ -43,8 +43,6 @@ def prepare_one_signal(patient, file_name, event_windows, eegs, files,
         # signal: channels x time points
         signal = tmp.values.T
         print("Number of channels: ", len(signal))
-        if n_channels > len(signal):
-            n_channels = len(signal)
         for (event_start_s, event_duration_s) in event_windows:
             print("Slicing window", event_start_s, event_start_s + event_duration_s)
             # slice to the desired window
@@ -61,7 +59,7 @@ def prepare_one_signal(patient, file_name, event_windows, eegs, files,
             files.append(file_name)
     except (ValueError, NotImplementedError):
         print(patient, "signal cannot be loaded with", file_name)
-    return eegs, files, n_channels
+    return eegs, files
 
 # Move all reviewed raw .edf files to the desired directory
 if not os.path.isdir(signal_dir):
@@ -116,8 +114,9 @@ for label_file_name in all_label_file_names:
                         + float(event_start.split(":")[2])
         # take the chunk until the first event of each patient & date key as normal
         if key not in test_signal_keys:
-            test_normal_signal_dict[key] = [(0, event_start_s)]
-            print("* Test normal", key, test_normal_signal_dict[key])
+            if event_start_s > max_signal_length_s:  # at least 60 min before ictal activity
+                test_normal_signal_dict[key] = [(0, event_start_s - max_signal_length_s)]
+                print("* Test normal", key, test_normal_signal_dict[key])
             test_signal_keys.append(key)
         # Read event labels
         seizure_label = xl_sheet.cell(label_idx, 3).value
@@ -178,9 +177,20 @@ rda_files = []
 
 # Read eegs as numpy arrays and bandpass filter
 print("*** Processing training signals")
+start_counter = 0
+counter = 0
+# Load previously saved checkpoint
+if start_counter > 0:
+    with open('human_train_eegs_{}.pickle'.format(start_counter), 'rb') as handle:
+        train_eegs = pickle.load(handle)
+    with open('human_train_files_{}.pickle'.format(start_counter), 'rb') as handle:
+        train_files = pickle.load(handle)
 for train_patient in training_signal_keys:
     for file_name in EEG_files:
         if train_patient in file_name:
+            counter += 1
+            if counter <= start_counter:
+                continue
             try:
                 tmp = read_raw_edf(file_name, preload=True)
                 print(train_patient, "has signal", file_name)
@@ -190,9 +200,9 @@ for train_patient in training_signal_keys:
                 # convert to numpy's unique data format, each signal may have a different length!
                 # signal: channels x time points
                 signal = tmp.values.T
+                # cut first 60 mins due to memory issues
+                signal = signal[:, :min(int(max_signal_length_s * current_fs), signal.shape[-1])]
                 print("Number of channels: ", len(signal))
-                if n_channels > len(signal):
-                    n_channels = len(signal)
                 # downsample if necessary
                 if current_fs > 1.5 * fs:
                     downsampling_factor = int(current_fs / fs)
@@ -204,52 +214,131 @@ for train_patient in training_signal_keys:
                 train_files.append(file_name)
             except (ValueError, NotImplementedError):
                 print(train_patient, "signal cannot be loaded with", file_name)
+            # Save checkpoints
+            if counter % 10 == 9:
+                print("%% Counter,", counter)
+                with open('human_train_eegs_{}.pickle'.format(counter), 'wb') as handle:
+                    pickle.dump(train_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                with open('human_train_files_{}.pickle'.format(counter), 'wb') as handle:
+                    pickle.dump(train_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
 with open('human_train_eegs.pickle', 'wb') as handle:
     pickle.dump(train_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
 with open('human_train_files.pickle', 'wb') as handle:
     pickle.dump(train_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-print("*** Processing test normal signals")
-for test_normal_patient, test_normal_windows in test_normal_signal_dict.items():
-    for file_name in EEG_files:
-        if test_normal_patient in file_name:
-            test_normal_eegs, test_normal_files, n_channels = prepare_one_signal(test_normal_patient, file_name,
-                            test_normal_windows, test_normal_eegs, test_normal_files,
-                            lowcut, highcut, fs, n_channels)
-with open('human_test_normal_eegs.pickle', 'wb') as handle:
-    pickle.dump(test_normal_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
-with open('human_test_normal_files.pickle', 'wb') as handle:
-    pickle.dump(test_normal_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
 print("*** Processing seizure signals")
+start_counter = 0
+counter = 0
+# Load previously saved checkpoint
+if start_counter > 0:
+    with open('human_seizure_eegs_{}.pickle'.format(start_counter), 'rb') as handle:
+        seizure_eegs = pickle.load(handle)
+    with open('human_seizure_files_{}.pickle'.format(start_counter), 'rb') as handle:
+        seizure_files = pickle.load(handle)
 for seizure_patient, seizure_windows in seizure_signal_dict.items():
     for file_name in EEG_files:
         if seizure_patient in file_name:
-            seizure_eegs, seizure_files, n_channels = prepare_one_signal(seizure_patient, file_name,
+            counter += 1
+            if counter <= start_counter:
+                continue
+            seizure_eegs, seizure_files = prepare_one_signal(seizure_patient, file_name,
                             seizure_windows, seizure_eegs, seizure_files,
-                            lowcut, highcut, fs, n_channels)
+                            lowcut, highcut, fs)
+            # Save checkpoints
+            if counter % 10 == 9:
+                print("%% Counter,", counter)
+                with open('human_seizure_eegs_{}.pickle'.format(counter), 'wb') as handle:
+                    pickle.dump(seizure_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                with open('human_seizure_files_{}.pickle'.format(counter), 'wb') as handle:
+                    pickle.dump(seizure_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
 with open('human_seizure_eegs.pickle', 'wb') as handle:
     pickle.dump(seizure_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
 with open('human_seizure_files.pickle', 'wb') as handle:
     pickle.dump(seizure_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
+print("*** Processing test normal signals")
+start_counter = 0
+counter = 0
+# Load previously saved checkpoint
+if start_counter > 0:
+    with open('human_test_normal_eegs_{}.pickle'.format(start_counter), 'rb') as handle:
+        test_normal_eegs = pickle.load(handle)
+    with open('human_test_normal_files_{}.pickle'.format(start_counter), 'rb') as handle:
+        test_normal_files = pickle.load(handle)
+for test_normal_patient, test_normal_windows in test_normal_signal_dict.items():
+    for file_name in EEG_files:
+        if test_normal_patient in file_name:
+            counter += 1
+            if counter <= start_counter:
+                continue
+            test_normal_eegs, test_normal_files = prepare_one_signal(test_normal_patient, file_name,
+                            test_normal_windows, test_normal_eegs, test_normal_files,
+                            lowcut, highcut, fs)
+            # Save checkpoints
+            if counter % 10 == 9:
+                print("%% Counter,", counter)
+                with open('human_test_normal_eegs_{}.pickle'.format(counter), 'wb') as handle:
+                    pickle.dump(test_normal_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                with open('human_test_normal_files_{}.pickle'.format(counter), 'wb') as handle:
+                    pickle.dump(test_normal_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
+with open('human_test_normal_eegs.pickle', 'wb') as handle:
+    pickle.dump(test_normal_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
+with open('human_test_normal_files.pickle', 'wb') as handle:
+    pickle.dump(test_normal_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
 print("*** Processing pd signals")
+start_counter = 0
+counter = 0
+# Load previously saved checkpoint
+if start_counter > 0:
+    with open('human_pd_eegs_{}.pickle'.format(start_counter), 'rb') as handle:
+        pd_eegs = pickle.load(handle)
+    with open('human_pd_files_{}.pickle'.format(start_counter), 'rb') as handle:
+        pd_files = pickle.load(handle)
 for pd_patient, pd_windows in pd_signal_dict.items():
     for file_name in EEG_files:
         if pd_patient in file_name:
-            pd_eegs, pd_files, n_channels = prepare_one_signal(pd_patient, file_name,
-                            pd_windows, pd_eegs, pd_files, lowcut, highcut, fs, n_channels)
+            counter += 1
+            if counter <= start_counter:
+                continue
+            pd_eegs, pd_files = prepare_one_signal(pd_patient, file_name,
+                            pd_windows, pd_eegs, pd_files, lowcut, highcut, fs)
+            # Save checkpoints
+            if counter % 10 == 9:
+                print("%% Counter,", counter)
+                with open('human_pd_eegs_{}.pickle'.format(counter), 'wb') as handle:
+                    pickle.dump(pd_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                with open('human_pd_files_{}.pickle'.format(counter), 'wb') as handle:
+                    pickle.dump(pd_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
 with open('human_pd_eegs.pickle', 'wb') as handle:
     pickle.dump(pd_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
 with open('human_pd_files.pickle', 'wb') as handle:
     pickle.dump(pd_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 print("*** Processing rda signals")
+start_counter = 0
+counter = 0
+# Load previously saved checkpoint
+if start_counter > 0:
+    with open('human_rda_eegs_{}.pickle'.format(start_counter), 'rb') as handle:
+        rda_eegs = pickle.load(handle)
+    with open('human_rda_files_{}.pickle'.format(start_counter), 'rb') as handle:
+        rda_files = pickle.load(handle)
 for rda_patient, rda_windows in rda_signal_dict.items():
     for file_name in EEG_files:
         if rda_patient in file_name:
-            rda_eegs, rda_files, n_channels = prepare_one_signal(rda_patient, file_name,
-                            rda_windows, rda_eegs, rda_files, lowcut, highcut, fs, n_channels)
+            counter += 1
+            if counter <= start_counter:
+                continue
+            rda_eegs, rda_files = prepare_one_signal(rda_patient, file_name,
+                            rda_windows, rda_eegs, rda_files, lowcut, highcut, fs)
+            # Save checkpoints
+            if counter % 10 == 9:
+                print("%% Counter,", counter)
+                with open('human_rda_eegs_{}.pickle'.format(counter), 'wb') as handle:
+                    pickle.dump(rda_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                with open('human_rda_files_{}.pickle'.format(counter), 'wb') as handle:
+                    pickle.dump(rda_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
 with open('human_rda_eegs.pickle', 'wb') as handle:
     pickle.dump(rda_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
 with open('human_rda_files.pickle', 'wb') as handle:
