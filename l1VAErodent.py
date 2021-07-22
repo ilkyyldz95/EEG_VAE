@@ -116,13 +116,13 @@ class VAE(nn.Module):
         self.ebn1 = nn.BatchNorm2d(h_layer_1, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
         self.econv2 = nn.Conv2d(h_layer_1, h_layer_2, kernel_size=kernel_size, stride=stride)
         self.ebn2 = nn.BatchNorm2d(h_layer_2, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
-        self.efc1  = nn.Linear(h_layer_2 * kernel_size[0] * (sub_window_size-6), h_layer_5)
+        self.efc1  = nn.Linear(h_layer_2 * (n_channels-6) * (sub_window_size-6), h_layer_5)
         self.edrop1 = nn.Dropout(p=0.3, inplace = False)
         self.mu_z  = nn.Linear(h_layer_5, latent_dim)
         self.scale_z = nn.Linear(h_layer_5, latent_dim)
         #
         self.dfc1 = nn.Linear(latent_dim, h_layer_5)
-        self.dfc2 = nn.Linear(h_layer_5, h_layer_2 * kernel_size[0] * (sub_window_size-6))
+        self.dfc2 = nn.Linear(h_layer_5, h_layer_2 * (n_channels-6) * (sub_window_size-6))
         self.ddrop1 = nn.Dropout(p=0.3, inplace = False)
         self.dconv3 = nn.ConvTranspose2d(h_layer_2, h_layer_1, kernel_size=kernel_size, stride=stride, padding = 0, output_padding = 0)
         self.dbn3 = nn.BatchNorm2d(h_layer_1, eps = 1e-5, momentum = 0.1, affine = True, track_running_stats = True)
@@ -155,7 +155,7 @@ class VAE(nn.Module):
         eh1 = self.relu(self.ebn1(self.econv1(x)))
         eh2 = self.relu(self.ebn2(self.econv2(eh1)))
         #print(eh2.shape)
-        eh5 = self.relu(self.edrop1(self.efc1(eh2.view(-1, h_layer_2 * kernel_size[0] * (sub_window_size-6)))))
+        eh5 = self.relu(self.edrop1(self.efc1(eh2.view(-1, h_layer_2 * (n_channels-6) * (sub_window_size-6)))))
         mu_z = self.mu_z(eh5)
         scale_z = self.scale_z(eh5)
         return mu_z, scale_z
@@ -172,7 +172,7 @@ class VAE(nn.Module):
         dh1 = self.relu(self.dfc1(z))
         dh2 = self.relu(self.ddrop1(self.dfc2(dh1)))
         #print(dh2.shape)
-        dh5 = self.relu(self.dbn3(self.dconv3(dh2.view(-1, h_layer_2, kernel_size[0], (sub_window_size-6)))))
+        dh5 = self.relu(self.dbn3(self.dconv3(dh2.view(-1, h_layer_2, (n_channels-6), (sub_window_size-6)))))
         x = self.dconv4(dh5).view(-1, 1, img_size)
         #print(x.shape)
         return self.sigmoid(x)
@@ -365,11 +365,11 @@ def plot_reconstruction():
             _, axs = plt.subplots(int(n_channels / 2), 2)
             for ch in range(int(n_channels / 2)):
                 axs[ch, 0].plot(T, img[ch], c="b", linewidth=0.5)
-                axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.25 * np.max(anom_img[ch]),
+                axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
                             facecolor='green', alpha=0.5)
                 axs[ch, 1].plot(T, img[ch + int(n_channels / 2)], c="b", linewidth=0.5)
                 axs[ch, 1].fill_between(T, np.min(img[ch + int(n_channels / 2)]), np.max(img[ch + int(n_channels / 2)]),
-                            where=anom_img[ch + int(n_channels / 2)] > 0.25 * np.max(anom_img[ch + int(n_channels / 2)]),
+                            where=anom_img[ch + int(n_channels / 2)] > 0.5 * np.max(anom_img[ch + int(n_channels / 2)]),
                             facecolor='green', alpha=0.5)
                 axs[ch, 0].set(ylabel=r'$\mu V$')
             axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
@@ -389,11 +389,11 @@ def plot_reconstruction():
             _, axs = plt.subplots(int(n_channels / 2), 2)
             for ch in range(int(n_channels / 2)):
                 axs[ch, 0].plot(T, img[ch], c="b", linewidth=0.5)
-                axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.25 * np.max(anom_img[ch]),
+                axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
                             facecolor='green', alpha=0.5)
                 axs[ch, 1].plot(T, img[ch + int(n_channels / 2)], c="b", linewidth=0.5)
                 axs[ch, 1].fill_between(T, np.min(img[ch + int(n_channels / 2)]), np.max(img[ch + int(n_channels / 2)]),
-                            where=anom_img[ch + int(n_channels / 2)] > 0.25 * np.max(anom_img[ch + int(n_channels / 2)]),
+                            where=anom_img[ch + int(n_channels / 2)] > 0.5 * np.max(anom_img[ch + int(n_channels / 2)]),
                             facecolor='green', alpha=0.5)
                 axs[ch, 0].set(ylabel=r'$\mu V$')
             axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
@@ -412,11 +412,11 @@ def plot_reconstruction():
         _, axs = plt.subplots(int(n_channels / 2), 2)
         for ch in range(int(n_channels / 2)):
             axs[ch, 0].plot(T, img[ch], c="b", linewidth=0.5)
-            axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.25 * np.max(anom_img[ch]),
+            axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
                             facecolor='green', alpha=0.5)
             axs[ch, 1].plot(T, img[ch + int(n_channels / 2)], c="b", linewidth=0.5)
             axs[ch, 1].fill_between(T, np.min(img[ch + int(n_channels / 2)]), np.max(img[ch + int(n_channels / 2)]),
-                            where=anom_img[ch + int(n_channels / 2)] > 0.25 * np.max(anom_img[ch + int(n_channels / 2)]),
+                            where=anom_img[ch + int(n_channels / 2)] > 0.5 * np.max(anom_img[ch + int(n_channels / 2)]),
                             facecolor='green', alpha=0.5)
             axs[ch, 0].set(ylabel=r'$\mu V$')
         axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
@@ -447,11 +447,11 @@ def plot_reconstruction():
         _, axs = plt.subplots(int(n_channels / 2), 2)
         for ch in range(int(n_channels / 2)):
             axs[ch, 0].plot(T, img[ch], c="b", linewidth=0.5)
-            axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.25 * np.max(anom_img[ch]),
+            axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
                             facecolor='green', alpha=0.5)
             axs[ch, 1].plot(T, img[ch + int(n_channels / 2)], c="b", linewidth=0.5)
             axs[ch, 1].fill_between(T, np.min(img[ch + int(n_channels / 2)]), np.max(img[ch + int(n_channels / 2)]),
-                            where=anom_img[ch + int(n_channels / 2)] > 0.25 * np.max(anom_img[ch + int(n_channels / 2)]),
+                            where=anom_img[ch + int(n_channels / 2)] > 0.5 * np.max(anom_img[ch + int(n_channels / 2)]),
                             facecolor='green', alpha=0.5)
             axs[ch, 0].set(ylabel=r'$\mu V$')
         axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
@@ -492,11 +492,11 @@ def plot_reconstruction():
             _, axs = plt.subplots(int(n_channels / 2), 2)
             for ch in range(int(n_channels / 2)):
                 axs[ch, 0].plot(T, img[ch], c="b", linewidth=0.5)
-                axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.25 * np.max(anom_img[ch]),
+                axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
                             facecolor='green', alpha=0.5)
                 axs[ch, 1].plot(T, img[ch + int(n_channels / 2)], c="b", linewidth=0.5)
                 axs[ch, 1].fill_between(T, np.min(img[ch + int(n_channels / 2)]), np.max(img[ch + int(n_channels / 2)]),
-                            where=anom_img[ch + int(n_channels / 2)] > 0.25 * np.max(anom_img[ch + int(n_channels / 2)]),
+                            where=anom_img[ch + int(n_channels / 2)] > 0.5 * np.max(anom_img[ch + int(n_channels / 2)]),
                             facecolor='green', alpha=0.5)
                 axs[ch, 0].set(ylabel=r'$\mu V$')
             axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
@@ -516,11 +516,11 @@ def plot_reconstruction():
             _, axs = plt.subplots(int(n_channels / 2), 2)
             for ch in range(int(n_channels / 2)):
                 axs[ch, 0].plot(T, img[ch], c="b", linewidth=0.5)
-                axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.25 * np.max(anom_img[ch]),
+                axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
                             facecolor='green', alpha=0.5)
                 axs[ch, 1].plot(T, img[ch + int(n_channels / 2)], c="b", linewidth=0.5)
                 axs[ch, 1].fill_between(T, np.min(img[ch + int(n_channels / 2)]), np.max(img[ch + int(n_channels / 2)]),
-                            where=anom_img[ch + int(n_channels / 2)] > 0.25 * np.max(anom_img[ch + int(n_channels / 2)]),
+                            where=anom_img[ch + int(n_channels / 2)] > 0.5 * np.max(anom_img[ch + int(n_channels / 2)]),
                             facecolor='green', alpha=0.5)
                 axs[ch, 0].set(ylabel=r'$\mu V$')
             axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
@@ -539,11 +539,11 @@ def plot_reconstruction():
         _, axs = plt.subplots(int(n_channels / 2), 2)
         for ch in range(int(n_channels / 2)):
             axs[ch, 0].plot(T, img[ch], c="b", linewidth=0.5)
-            axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.25 * np.max(anom_img[ch]),
+            axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
                             facecolor='green', alpha=0.5)
             axs[ch, 1].plot(T, img[ch + int(n_channels / 2)], c="b", linewidth=0.5)
             axs[ch, 1].fill_between(T, np.min(img[ch + int(n_channels / 2)]), np.max(img[ch + int(n_channels / 2)]),
-                            where=anom_img[ch + int(n_channels / 2)] > 0.25 * np.max(anom_img[ch + int(n_channels / 2)]),
+                            where=anom_img[ch + int(n_channels / 2)] > 0.5 * np.max(anom_img[ch + int(n_channels / 2)]),
                             facecolor='green', alpha=0.5)
             axs[ch, 0].set(ylabel=r'$\mu V$')
         axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
@@ -574,11 +574,11 @@ def plot_reconstruction():
         _, axs = plt.subplots(int(n_channels / 2), 2)
         for ch in range(int(n_channels / 2)):
             axs[ch, 0].plot(T, img[ch], c="b", linewidth=0.5)
-            axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.25 * np.max(anom_img[ch]),
+            axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
                             facecolor='green', alpha=0.5)
             axs[ch, 1].plot(T, img[ch + int(n_channels / 2)], c="b", linewidth=0.5)
             axs[ch, 1].fill_between(T, np.min(img[ch + int(n_channels / 2)]), np.max(img[ch + int(n_channels / 2)]),
-                            where=anom_img[ch + int(n_channels / 2)] > 0.25 * np.max(anom_img[ch + int(n_channels / 2)]),
+                            where=anom_img[ch + int(n_channels / 2)] > 0.5 * np.max(anom_img[ch + int(n_channels / 2)]),
                             facecolor='green', alpha=0.5)
             axs[ch, 0].set(ylabel=r'$\mu V$')
         axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")

@@ -345,7 +345,7 @@ with open('human_rda_files.pickle', 'wb') as handle:
     pickle.dump(rda_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 print("=> Training signals saved", len(train_eegs))
-print("=> Test normal signals saved", len(test_normal_eegs))
+print("=> Test normal signals saved", len(test_normal_eegs))  # 20
 print("=> Seizure signals saved", len(seizure_eegs))
-print("=> PD signals saved", len(pd_eegs))
-print("=> RDA signals saved", len(rda_eegs))
+print("=> PD signals saved", len(pd_eegs))    # 24
+print("=> RDA signals saved", len(rda_eegs))    # 24
