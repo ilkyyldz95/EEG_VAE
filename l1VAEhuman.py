@@ -12,10 +12,10 @@ import pickle
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 from scipy.signal import spectrogram
-from scipy.stats import wilcoxon
-from scipy.metrics import roc_auc_score
+from scipy.stats import ttest_ind
+from sklearn.metrics import roc_curve, accuracy_score, roc_auc_score, f1_score, precision_score, recall_score, classification_report
 
-Restore = False
+Restore = True
 modality = "human"
 fs = 250.0
 img_size = 14400
@@ -77,7 +77,7 @@ stride = 1
 # VAE training parameters
 batch_size = 128
 checkpoint_epoch = 0
-epoch_num = 350
+epoch_num = 250
 beta = 0.8
 
 # Save folders for trained models and logs
@@ -122,7 +122,7 @@ if Restore:
     test_seizure_prep_eegs, test_seizure_files = apply_sliding_window(test_seizure_files, test_eegs)
     test_seizure_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
                           for img in test_seizure_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
-    print("Number of test normal and seizure signals:", len(test_normal_imgs), len(test_seizure_imgs))
+    print("Number of test normal and seizure signals:", len(test_normal_imgs), len(test_seizure_imgs))  # 24199 4836
 
 class VAE(nn.Module):
     def __init__(self):
@@ -319,20 +319,30 @@ def plot_reconstruction():
 
     # Plot 3D latent space w.r.t. only categories
     plt.figure()
-    ax = plt.axes(projection='3d')
-    ax.scatter3D(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 1],
-                 latent_vars_embedded[:len(test_normal_files), 2], c="b", label="Normal", alpha=0.5)
-    ax.scatter3D(latent_vars_embedded[len(test_normal_files):, 0],
+    _, ax = plt.subplots(2, 2)
+    ax[0, 0].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 1],
+                     c="b", label="Normal", alpha=0.5)
+    ax[0, 0].scatter(latent_vars_embedded[len(test_normal_files):, 0],
                  latent_vars_embedded[len(test_normal_files):, 1],
-                 latent_vars_embedded[len(test_normal_files):, 2], c="r", label="Seizure", alpha=0.5)
-    ax.legend()
+                 c="r", label="Seizure", alpha=0.5)
+    ax[0, 1].scatter(latent_vars_embedded[:len(test_normal_files), 0],
+                     latent_vars_embedded[:len(test_normal_files), 2], c="b", label="Normal", alpha=0.5)
+    ax[0, 1].scatter(latent_vars_embedded[len(test_normal_files):, 0],
+                     latent_vars_embedded[len(test_normal_files):, 2], c="r", label="Seizure", alpha=0.5)
+    ax[1, 0].scatter(latent_vars_embedded[:len(test_normal_files), 1],
+                     latent_vars_embedded[:len(test_normal_files), 2], c="b", label="Normal", alpha=0.5)
+    ax[1, 0].scatter(latent_vars_embedded[len(test_normal_files):, 1],
+                     latent_vars_embedded[len(test_normal_files):, 2], c="r", label="Seizure", alpha=0.5)
+    ax[1, 0].legend()
     plt.savefig(results_save_dir + '/latent_3D_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
     plt.close()
 
     # Plot anomaly score histograms w.r.t. only categories
     # Median over time to combat noise artifacts, max over time since only one channel may have biomarker
     anom_avg_scores = np.concatenate([anom_scores_normal, anom_scores_seizure], 0)
-    anom_avg_scores = np.max(np.median(anom_avg_scores, -1), -1)
+    anom_avg_scores = np.median(anom_avg_scores, -1)
+    detect_channels = np.argmax(anom_avg_scores, -1)
+    anom_avg_scores = np.max(anom_avg_scores, -1)
     plt.figure()
     _, ax = plt.subplots()
     plt.hist(anom_avg_scores[:len(anom_scores_normal)], 50, density=True, facecolor="b", label="Normal", alpha=0.5)
@@ -342,17 +352,29 @@ def plot_reconstruction():
     plt.savefig(results_save_dir + '/anom_hist_l_{}_input_{}.pdf'.format(latent_dim, img_size),
                 bbox_inches='tight')
     plt.close()
-    print("P-value between normal and seizure:", wilcoxon(anom_avg_scores[:len(anom_scores_normal)],
-                                                       anom_avg_scores[len(anom_scores_normal):]))
+    print("P-value between normal and seizure:", ttest_ind(anom_avg_scores[:len(anom_scores_normal)],
+                                        anom_avg_scores[len(anom_scores_normal):], equal_var=False))
 
-    # Test on normal and seizure chunks. Each time window over all channels has one label
+    # Test on normal and seizure windows
+    # Each time window over all channels has one label. Max over channels, median over window
     test_labels = np.array([0] * len(anom_scores_normal) + [1] * len(anom_scores_seizure))
-    # Calculate AUC
-    print("AUC:", roc_auc_score(test_labels, anom_avg_scores))
+    # Choose classification threshold
+    auc = roc_auc_score(test_labels, anom_avg_scores)
+    fpr, tpr, thresholds = roc_curve(test_labels, anom_avg_scores)
+    gmeans = np.sqrt(tpr * (1 - fpr))
+    ix = np.argmax(gmeans)
+    print('Best Threshold=%f, G-Mean=%.3f' % (thresholds[ix], gmeans[ix]))
+    anom_avg_scores_thresholded = np.array(anom_avg_scores > thresholds[ix])
+    report_dict = classification_report(test_labels, anom_avg_scores_thresholded, output_dict=True)
+    precision = (report_dict["macro avg"]["precision"])
+    recall = (report_dict["macro avg"]["recall"])
+    accuracy = (report_dict["accuracy"])
+    print("Precision, recall, accuracy, AUC", precision, recall, accuracy, auc)
 
     # Plot signals and spectograms with smallest and largest anomaly scores over all signals
-    ### NORMAL
+    # NORMAL
     anom_avg_scores_normal = anom_avg_scores[:len(anom_scores_normal)]
+    detect_channels_normal = detect_channels[:len(anom_scores_normal)]
     sorted_anom_windows_idx = np.argsort(anom_avg_scores_normal)
     T = np.arange(1, sub_window_size + 1) / (fs / downsample_factor)
     for window_idx in sorted_anom_windows_idx[:3]:
@@ -360,34 +382,25 @@ def plot_reconstruction():
         img = test_normal_prep_eegs[window_idx]
         anom_img = anom_scores_normal[window_idx]
         file_name = test_normal_files[window_idx]
+        ch = detect_channels_normal[window_idx]
+
         plt.figure()
-        _, axs = plt.subplots(int(n_channels / 2), 2)
-        for ch in range(int(n_channels / 2)):
-            axs[ch, 0].plot(T, img[ch], c="b", linewidth=0.5)
-            axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]),
-                                    where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
-                                    facecolor='green', alpha=0.5)
-            axs[ch, 1].plot(T, img[ch + int(n_channels / 2)], c="b", linewidth=0.5)
-            axs[ch, 1].fill_between(T, np.min(img[ch + int(n_channels / 2)]), np.max(img[ch + int(n_channels / 2)]),
-                                    where=anom_img[ch + int(n_channels / 2)] > 0.5 * np.max(
-                                        anom_img[ch + int(n_channels / 2)]),
-                                    facecolor='green', alpha=0.5)
-            axs[ch, 0].set(ylabel=r'$\mu V$')
-        axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
+        _, axs = plt.subplots()
+        axs.plot(T, img[ch], c="b", linewidth=0.5)
+        axs.fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
+                                facecolor='green', alpha=0.5)
+        axs.set(ylabel=r'$\mu V$')
+        axs.set(xlabel="Time (s) vs. Input (b) and Anomaly (g) for the channel with maximum anomaly")
         plt.savefig(
             results_save_dir + '/least_anom_normal_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
             bbox_inches='tight')
         plt.close()
         plt.figure()
-        _, axs = plt.subplots(int(n_channels / 2), 2)
-        for ch in range(int(n_channels / 2)):
-            axs[ch, 0].specgram(img[ch], Fs=fs / downsample_factor)
-            axs[ch, 1].specgram(img[ch + int(n_channels / 2)], Fs=fs / downsample_factor)
-            axs[ch, 0].grid()
-            axs[ch, 1].grid()
-            axs[ch, 0].set_ylim([0, 60])
-            axs[ch, 1].set_ylim([0, 60])
-        axs[-1, 0].set(xlabel="Time (s) vs. Frequency (Hz)")
+        _, axs = plt.subplots()
+        axs.specgram(img[ch], Fs=fs / downsample_factor)
+        axs.grid()
+        axs.set_ylim([0, 60])
+        axs.set(xlabel="Time (s) vs. Frequency (Hz)")
         plt.savefig(
             results_save_dir + '/least_anom_normal_spec_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
             bbox_inches='tight')
@@ -398,40 +411,32 @@ def plot_reconstruction():
         img = test_normal_prep_eegs[window_idx]
         anom_img = anom_scores_normal[window_idx]
         file_name = test_normal_files[window_idx]
+        ch = detect_channels_normal[window_idx]
+
         plt.figure()
-        _, axs = plt.subplots(int(n_channels / 2), 2)
-        for ch in range(int(n_channels / 2)):
-            axs[ch, 0].plot(T, img[ch], c="b", linewidth=0.5)
-            axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]),
-                                    where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
-                                    facecolor='green', alpha=0.5)
-            axs[ch, 1].plot(T, img[ch + int(n_channels / 2)], c="b", linewidth=0.5)
-            axs[ch, 1].fill_between(T, np.min(img[ch + int(n_channels / 2)]), np.max(img[ch + int(n_channels / 2)]),
-                                    where=anom_img[ch + int(n_channels / 2)] > 0.5 * np.max(
-                                        anom_img[ch + int(n_channels / 2)]),
-                                    facecolor='green', alpha=0.5)
-            axs[ch, 0].set(ylabel=r'$\mu V$')
-        axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
+        _, axs = plt.subplots()
+        axs.plot(T, img[ch], c="b", linewidth=0.5)
+        axs.fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
+                                facecolor='green', alpha=0.5)
+        axs.set(ylabel=r'$\mu V$')
+        axs.set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
         plt.savefig(results_save_dir + '/most_anom_normal_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
                     bbox_inches='tight')
         plt.close()
         plt.figure()
-        _, axs = plt.subplots(int(n_channels / 2), 2)
-        for ch in range(int(n_channels / 2)):
-            axs[ch, 0].specgram(img[ch], Fs=fs / downsample_factor)
-            axs[ch, 1].specgram(img[ch + int(n_channels / 2)], Fs=fs / downsample_factor)
-            axs[ch, 0].grid()
-            axs[ch, 1].grid()
-            axs[ch, 0].set_ylim([0, 60])
-            axs[ch, 1].set_ylim([0, 60])
-        axs[-1, 0].set(xlabel="Time (s) vs. Frequency (Hz)")
+        _, axs = plt.subplots()
+        axs.specgram(img[ch], Fs=fs / downsample_factor)
+        axs.grid()
+        axs.set_ylim([0, 60])
+        axs.set(xlabel="Time (s) vs. Frequency (Hz)")
         plt.savefig(
             results_save_dir + '/most_anom_normal_spec_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
             bbox_inches='tight')
         plt.close()
 
-    ### SEIZURE
+    # SEIZURE
     anom_avg_scores_seizure = anom_avg_scores[len(anom_scores_normal):]
+    detect_channels_seizure = detect_channels[len(anom_scores_normal):]
     sorted_anom_windows_idx = np.argsort(anom_avg_scores_seizure)
     T = np.arange(1, sub_window_size + 1) / (fs / downsample_factor)
     for window_idx in sorted_anom_windows_idx[:3]:
@@ -439,34 +444,25 @@ def plot_reconstruction():
         img = test_seizure_prep_eegs[window_idx]
         anom_img = anom_scores_seizure[window_idx]
         file_name = test_seizure_files[window_idx]
+        ch = detect_channels_seizure[window_idx]
+
         plt.figure()
-        _, axs = plt.subplots(int(n_channels / 2), 2)
-        for ch in range(int(n_channels / 2)):
-            axs[ch, 0].plot(T, img[ch], c="b", linewidth=0.5)
-            axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]),
-                                    where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
-                                    facecolor='green', alpha=0.5)
-            axs[ch, 1].plot(T, img[ch + int(n_channels / 2)], c="b", linewidth=0.5)
-            axs[ch, 1].fill_between(T, np.min(img[ch + int(n_channels / 2)]), np.max(img[ch + int(n_channels / 2)]),
-                                    where=anom_img[ch + int(n_channels / 2)] > 0.5 * np.max(
-                                        anom_img[ch + int(n_channels / 2)]),
-                                    facecolor='green', alpha=0.5)
-            axs[ch, 0].set(ylabel=r'$\mu V$')
-        axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
+        _, axs = plt.subplots()
+        axs.plot(T, img[ch], c="b", linewidth=0.5)
+        axs.fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
+                                facecolor='green', alpha=0.5)
+        axs.set(ylabel=r'$\mu V$')
+        axs.set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
         plt.savefig(
             results_save_dir + '/least_anom_seizure_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
             bbox_inches='tight')
         plt.close()
         plt.figure()
-        _, axs = plt.subplots(int(n_channels / 2), 2)
-        for ch in range(int(n_channels / 2)):
-            axs[ch, 0].specgram(img[ch], Fs=fs / downsample_factor)
-            axs[ch, 1].specgram(img[ch + int(n_channels / 2)], Fs=fs / downsample_factor)
-            axs[ch, 0].grid()
-            axs[ch, 1].grid()
-            axs[ch, 0].set_ylim([0, 60])
-            axs[ch, 1].set_ylim([0, 60])
-        axs[-1, 0].set(xlabel="Time (s) vs. Frequency (Hz)")
+        _, axs = plt.subplots()
+        axs.specgram(img[ch], Fs=fs / downsample_factor)
+        axs.grid()
+        axs.set_ylim([0, 60])
+        axs.set(xlabel="Time (s) vs. Frequency (Hz)")
         plt.savefig(
             results_save_dir + '/least_anom_seizure_spec_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
             bbox_inches='tight')
@@ -477,33 +473,24 @@ def plot_reconstruction():
         img = test_seizure_prep_eegs[window_idx]
         anom_img = anom_scores_seizure[window_idx]
         file_name = test_seizure_files[window_idx]
+        ch = detect_channels_seizure[window_idx]
+
         plt.figure()
-        _, axs = plt.subplots(int(n_channels / 2), 2)
-        for ch in range(int(n_channels / 2)):
-            axs[ch, 0].plot(T, img[ch], c="b", linewidth=0.5)
-            axs[ch, 0].fill_between(T, np.min(img[ch]), np.max(img[ch]),
-                                    where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
-                                    facecolor='green', alpha=0.5)
-            axs[ch, 1].plot(T, img[ch + int(n_channels / 2)], c="b", linewidth=0.5)
-            axs[ch, 1].fill_between(T, np.min(img[ch + int(n_channels / 2)]), np.max(img[ch + int(n_channels / 2)]),
-                                    where=anom_img[ch + int(n_channels / 2)] > 0.5 * np.max(
-                                        anom_img[ch + int(n_channels / 2)]),
-                                    facecolor='green', alpha=0.5)
-            axs[ch, 0].set(ylabel=r'$\mu V$')
-        axs[-1, 0].set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
+        _, axs = plt.subplots()
+        axs.plot(T, img[ch], c="b", linewidth=0.5)
+        axs.fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
+                                facecolor='green', alpha=0.5)
+        axs.set(ylabel=r'$\mu V$')
+        axs.set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
         plt.savefig(results_save_dir + '/most_anom_seizure_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
                     bbox_inches='tight')
         plt.close()
         plt.figure()
-        _, axs = plt.subplots(int(n_channels / 2), 2)
-        for ch in range(int(n_channels / 2)):
-            axs[ch, 0].specgram(img[ch], Fs=fs / downsample_factor)
-            axs[ch, 1].specgram(img[ch + int(n_channels / 2)], Fs=fs / downsample_factor)
-            axs[ch, 0].grid()
-            axs[ch, 1].grid()
-            axs[ch, 0].set_ylim([0, 60])
-            axs[ch, 1].set_ylim([0, 60])
-        axs[-1, 0].set(xlabel="Time (s) vs. Frequency (Hz)")
+        _, axs = plt.subplots()
+        axs.specgram(img[ch], Fs=fs / downsample_factor)
+        axs.grid()
+        axs.set_ylim([0, 60])
+        axs.set(xlabel="Time (s) vs. Frequency (Hz)")
         plt.savefig(
             results_save_dir + '/most_anom_seizure_spec_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
             bbox_inches='tight')
