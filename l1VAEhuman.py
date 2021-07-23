@@ -116,13 +116,28 @@ train_loader = torch.utils.data.DataLoader(train_imgs, batch_size=batch_size, sh
 if Restore:
     # Load test EEG data
     with open('{}_seizure_eegs.pickle'.format(modality), 'rb') as handle:
-        test_eegs = pickle.load(handle)
+        test_seizure_eegs = pickle.load(handle)
     with open('{}_seizure_files.pickle'.format(modality), 'rb') as handle:
         test_seizure_files = pickle.load(handle)
-    test_seizure_prep_eegs, test_seizure_files = apply_sliding_window(test_seizure_files, test_eegs)
+    test_seizure_prep_eegs, test_seizure_files = apply_sliding_window(test_seizure_files, test_seizure_eegs)
     test_seizure_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
                           for img in test_seizure_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
-    print("Number of test normal and seizure signals:", len(test_normal_imgs), len(test_seizure_imgs))  # 24199 4836
+    with open('{}_pd_eegs.pickle'.format(modality), 'rb') as handle:
+        test_pd_eegs = pickle.load(handle)
+    with open('{}_pd_files.pickle'.format(modality), 'rb') as handle:
+        test_pd_files = pickle.load(handle)
+    test_pd_prep_eegs, test_pd_files = apply_sliding_window(test_pd_files, test_pd_eegs)
+    test_pd_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
+                          for img in test_pd_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
+    with open('{}_rda_eegs.pickle'.format(modality), 'rb') as handle:
+        test_rd_eegs = pickle.load(handle)
+    with open('{}_rda_files.pickle'.format(modality), 'rb') as handle:
+        test_rd_files = pickle.load(handle)
+    test_rd_prep_eegs, test_rd_files = apply_sliding_window(test_rd_files, test_rd_eegs)
+    test_rd_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
+                          for img in test_rd_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
+    print("Number of test normal, seizure, pd, rd signals:", len(test_normal_imgs), len(test_seizure_imgs),
+          len(test_pd_imgs), len(test_rd_imgs))  # 24199 4836 17953 6667
 
 class VAE(nn.Module):
     def __init__(self):
@@ -257,18 +272,28 @@ def plot_reconstruction():
     # Load if results are already saved
     if os.path.exists(results_save_dir + '/anom_scores_normal_l_{}_input_{}.npy'.format(latent_dim, img_size)) and \
         os.path.exists(results_save_dir + '/anom_scores_seizure_l_{}_input_{}.npy'.format(latent_dim, img_size)) and \
-          os.path.exists(results_save_dir + '/latent_tsne_l_{}_input_{}.npy'.format(latent_dim, img_size)):
+        os.path.exists(results_save_dir + '/anom_scores_pd_l_{}_input_{}.npy'.format(latent_dim, img_size)) and \
+        os.path.exists(results_save_dir + '/anom_scores_rd_l_{}_input_{}.npy'.format(latent_dim, img_size)) and \
+            os.path.exists(results_save_dir + '/latent_tsne_l_{}_input_{}.npy'.format(latent_dim, img_size)):
         anom_scores_normal = np.load(results_save_dir + '/anom_scores_normal_l_{}_input_{}.npy'.
                                      format(latent_dim, img_size))
         anom_scores_seizure = np.load(results_save_dir + '/anom_scores_seizure_l_{}_input_{}.npy'.
+                                      format(latent_dim, img_size))
+        anom_scores_pd = np.load(results_save_dir + '/anom_scores_pd_l_{}_input_{}.npy'.
+                                      format(latent_dim, img_size))
+        anom_scores_rd = np.load(results_save_dir + '/anom_scores_rd_l_{}_input_{}.npy'.
                                       format(latent_dim, img_size))
         latent_vars_embedded = np.load(results_save_dir + '/latent_tsne_l_{}_input_{}.npy'.
                                                format(latent_dim, img_size))
     else:
         latent_vars_normal = []  # batch x latent_dim
         latent_vars_seizure = []  # batch x latent_dim
+        latent_vars_pd = []  # batch x latent_dim
+        latent_vars_rd = []  # batch x latent_dim
         anom_scores_normal = []  # batch x n_channels x sub_window_size
         anom_scores_seizure = []  # batch x n_channels x sub_window_size
+        anom_scores_pd = []  # batch x n_channels x sub_window_size
+        anom_scores_rd = []  # batch x n_channels x sub_window_size
 
         for file_name, img in zip(test_normal_files, test_normal_imgs):
             img_variable = Variable(torch.FloatTensor(img))
@@ -302,18 +327,69 @@ def plot_reconstruction():
             img = img.reshape(n_channels, sub_window_size)
             anom_scores_seizure.append(np.abs(img - img_i))
 
+        for file_name, img in zip(test_pd_files, test_pd_imgs):
+            img_variable = Variable(torch.FloatTensor(img))
+            img_variable = img_variable.unsqueeze(0)
+            img_variable = img_variable.to(device)
+            test_imgs_z_mu, test_imgs_z_scale = vae.Encoder(img_variable)
+            latent_vars_pd.append(test_imgs_z_mu.squeeze(0).squeeze(0).cpu().data.numpy())
+            # Repeat and average reconstruction
+            test_imgs_rec = []  # img_size vector
+            for _ in range(5):
+                test_imgs_z = vae.Reparam(test_imgs_z_mu, test_imgs_z_scale)
+                test_imgs_rec.append(vae.Decoder(test_imgs_z).squeeze(0).squeeze(0).cpu().data.numpy())
+            # Use reconstruction error as anomaly score
+            img_i = np.mean(test_imgs_rec, 0).reshape(n_channels, sub_window_size)
+            img = img.reshape(n_channels, sub_window_size)
+            anom_scores_pd.append(np.abs(img - img_i))
+
+        for file_name, img in zip(test_rd_files, test_rd_imgs):
+            img_variable = Variable(torch.FloatTensor(img))
+            img_variable = img_variable.unsqueeze(0)
+            img_variable = img_variable.to(device)
+            test_imgs_z_mu, test_imgs_z_scale = vae.Encoder(img_variable)
+            latent_vars_rd.append(test_imgs_z_mu.squeeze(0).squeeze(0).cpu().data.numpy())
+            # Repeat and average reconstruction
+            test_imgs_rec = []  # img_size vector
+            for _ in range(5):
+                test_imgs_z = vae.Reparam(test_imgs_z_mu, test_imgs_z_scale)
+                test_imgs_rec.append(vae.Decoder(test_imgs_z).squeeze(0).squeeze(0).cpu().data.numpy())
+            # Use reconstruction error as anomaly score
+            img_i = np.mean(test_imgs_rec, 0).reshape(n_channels, sub_window_size)
+            img = img.reshape(n_channels, sub_window_size)
+            anom_scores_rd.append(np.abs(img - img_i))
+
         np.save(results_save_dir + '/anom_scores_normal_l_{}_input_{}.npy'.
                 format(latent_dim, img_size), anom_scores_normal)
         np.save(results_save_dir + '/anom_scores_seizure_l_{}_input_{}.npy'.
                 format(latent_dim, img_size), anom_scores_seizure)
+        np.save(results_save_dir + '/anom_scores_pd_l_{}_input_{}.npy'.
+                format(latent_dim, img_size), anom_scores_pd)
+        np.save(results_save_dir + '/anom_scores_rd_l_{}_input_{}.npy'.
+                format(latent_dim, img_size), anom_scores_rd)
 
         # Dimension reduction on latent space
         latent_vars = np.concatenate([latent_vars_normal, latent_vars_seizure], 0)
         print("Latent space matrix original shape:", latent_vars.shape)
         if latent_dim > 3:
-            latent_vars_embedded = TSNE(n_components=3).fit_transform(latent_vars)
+            latent_vars_embedded_seizure = TSNE(n_components=3).fit_transform(latent_vars)
         else:
-            latent_vars_embedded = np.copy(latent_vars)
+            latent_vars_embedded_seizure = np.copy(latent_vars)
+        latent_vars = np.concatenate([latent_vars_normal, latent_vars_pd], 0)
+        print("Latent space matrix original shape:", latent_vars.shape)
+        if latent_dim > 3:
+            latent_vars_embedded_pd = TSNE(n_components=3).fit_transform(latent_vars)
+        else:
+            latent_vars_embedded_pd = np.copy(latent_vars)
+        latent_vars = np.concatenate([latent_vars_normal, latent_vars_rd], 0)
+        print("Latent space matrix original shape:", latent_vars.shape)
+        if latent_dim > 3:
+            latent_vars_embedded_rd = TSNE(n_components=3).fit_transform(latent_vars)
+        else:
+            latent_vars_embedded_rd = np.copy(latent_vars)
+        latent_vars_embedded = np.concatenate([latent_vars_embedded_seizure,
+                            latent_vars_embedded_pd[len(latent_vars_normal):],
+                            latent_vars_embedded_rd[len(latent_vars_normal):]], 0)
         np.save(results_save_dir + '/latent_tsne_l_{}_input_{}.npy'.format(latent_dim, img_size), latent_vars_embedded)
         print("Latent space matrix reduced shape:", latent_vars_embedded.shape)
 
@@ -322,60 +398,110 @@ def plot_reconstruction():
     _, ax = plt.subplots(2, 2)
     ax[0, 0].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 1],
                      c="b", label="Normal", alpha=0.5)
-    ax[0, 0].scatter(latent_vars_embedded[len(test_normal_files):, 0],
-                 latent_vars_embedded[len(test_normal_files):, 1],
+    ax[0, 0].scatter(latent_vars_embedded[len(test_normal_files):len(test_normal_files)+len(test_seizure_files), 0],
+                 latent_vars_embedded[len(test_normal_files):len(test_normal_files)+len(test_seizure_files):, 1],
                  c="r", label="Seizure", alpha=0.5)
-    ax[0, 0].set(xlabel="x")
-    ax[0, 0].set(ylabel="y")
-    ax[0, 1].scatter(latent_vars_embedded[:len(test_normal_files), 0],
-                     latent_vars_embedded[:len(test_normal_files), 2], c="b", label="Normal", alpha=0.5)
-    ax[0, 1].scatter(latent_vars_embedded[len(test_normal_files):, 0],
-                     latent_vars_embedded[len(test_normal_files):, 2], c="r", label="Seizure", alpha=0.5)
-    ax[0, 1].set(xlabel="x")
-    ax[0, 1].set(ylabel="z")
-    ax[1, 0].scatter(latent_vars_embedded[:len(test_normal_files), 1],
-                     latent_vars_embedded[:len(test_normal_files), 2], c="b", label="Normal", alpha=0.5)
-    ax[1, 0].scatter(latent_vars_embedded[len(test_normal_files):, 1],
-                     latent_vars_embedded[len(test_normal_files):, 2], c="r", label="Seizure", alpha=0.5)
-    ax[1, 0].set(xlabel="y")
-    ax[1, 0].set(ylabel="z")
-    ax[1, 1].legend()
-    plt.savefig(results_save_dir + '/latent_3D_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
+    ax[0, 1].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 2],
+                     c="b", label="Normal", alpha=0.5)
+    ax[0, 1].scatter(latent_vars_embedded[len(test_normal_files):len(test_normal_files) + len(test_seizure_files), 0],
+                     latent_vars_embedded[len(test_normal_files):len(test_normal_files) + len(test_seizure_files):, 2],
+                     c="r", label="Seizure", alpha=0.5)
+    ax[1, 0].scatter(latent_vars_embedded[:len(test_normal_files), 1], latent_vars_embedded[:len(test_normal_files), 2],
+                     c="b", label="Normal", alpha=0.5)
+    ax[1, 0].scatter(latent_vars_embedded[len(test_normal_files):len(test_normal_files) + len(test_seizure_files), 1],
+                     latent_vars_embedded[len(test_normal_files):len(test_normal_files) + len(test_seizure_files):, 2],
+                     c="r", label="Seizure", alpha=0.5)
+    ax[1, 0].legend()
+    plt.savefig(results_save_dir + '/latent_seizure_3D_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
+    plt.close()
+
+    plt.figure()
+    _, ax = plt.subplots(2, 2)
+    ax[0, 0].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 1],
+                     c="b", label="Normal", alpha=0.5)
+    ax[0, 0].scatter(latent_vars_embedded[len(test_normal_files) + len(test_seizure_files):
+                                          len(test_normal_files) + len(test_seizure_files) + len(test_pd_files), 0],
+                     latent_vars_embedded[len(test_normal_files) + len(test_seizure_files):
+                                          len(test_normal_files) + len(test_seizure_files) + len(test_pd_files), 1],
+                     c="g", label="PD", alpha=0.5)
+    ax[0, 1].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 2],
+                     c="b", label="Normal", alpha=0.5)
+    ax[0, 1].scatter(latent_vars_embedded[len(test_normal_files) + len(test_seizure_files):
+                                          len(test_normal_files) + len(test_seizure_files) + len(test_pd_files), 0],
+                     latent_vars_embedded[len(test_normal_files) + len(test_seizure_files):
+                                          len(test_normal_files) + len(test_seizure_files) + len(test_pd_files), 2],
+                     c="g", label="PD", alpha=0.5)
+    ax[1, 0].scatter(latent_vars_embedded[:len(test_normal_files), 1], latent_vars_embedded[:len(test_normal_files), 2],
+                     c="b", label="Normal", alpha=0.5)
+    ax[1, 0].scatter(latent_vars_embedded[len(test_normal_files) + len(test_seizure_files):
+                                          len(test_normal_files) + len(test_seizure_files) + len(test_pd_files), 1],
+                     latent_vars_embedded[len(test_normal_files) + len(test_seizure_files):
+                                          len(test_normal_files) + len(test_seizure_files) + len(test_pd_files), 2],
+                     c="g", label="PD", alpha=0.5)
+    ax[1, 0].legend()
+    plt.savefig(results_save_dir + '/latent_pd_3D_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
+    plt.close()
+
+    plt.figure()
+    _, ax = plt.subplots(2, 2)
+    ax[0, 0].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 1],
+                     c="b", label="Normal", alpha=0.5)
+    ax[0, 0].scatter(latent_vars_embedded[-len(test_rd_files):, 0], latent_vars_embedded[-len(test_rd_files):, 1],
+                     c="k", label="RD", alpha=0.5)
+    ax[0, 1].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 2],
+                     c="b", label="Normal", alpha=0.5)
+    ax[0, 1].scatter(latent_vars_embedded[-len(test_rd_files):, 0], latent_vars_embedded[-len(test_rd_files):, 2],
+                     c="k", label="RD", alpha=0.5)
+    ax[1, 0].scatter(latent_vars_embedded[:len(test_normal_files), 1], latent_vars_embedded[:len(test_normal_files), 2],
+                     c="b", label="Normal", alpha=0.5)
+    ax[1, 0].scatter(latent_vars_embedded[-len(test_rd_files):, 1], latent_vars_embedded[-len(test_rd_files):, 2],
+                     c="k", label="RD", alpha=0.5)
+    ax[1, 0].legend()
+    plt.savefig(results_save_dir + '/latent_rd_3D_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
     plt.close()
 
     # Median over time to combat noise artifacts, max over time since only one channel may have biomarker
-    anom_scores = np.concatenate([anom_scores_normal, anom_scores_seizure], 0)  # batch x n_channels x sub_window_size
+    anom_scores = np.concatenate([anom_scores_normal, anom_scores_seizure,
+                                  anom_scores_pd, anom_scores_rd], 0)  # batch x n_channels x sub_window_size
     anom_avg_scores = np.median(anom_scores, -1)
-    detect_channels = np.argmax(anom_avg_scores, -1)  
+    detect_channels = np.argmax(anom_avg_scores, -1)
     anom_avg_scores = np.max(anom_avg_scores, -1)
 
     # Plot anomaly score histograms w.r.t. only categories
     plt.figure()
     _, ax = plt.subplots()
     plt.hist(anom_avg_scores[:len(anom_scores_normal)], 50, density=True, facecolor="b", label="Normal", alpha=0.5)
-    plt.hist(anom_avg_scores[len(anom_scores_normal):], 50, density=True, facecolor="g", label="Seizure", alpha=0.5)
+    plt.hist(anom_avg_scores[len(anom_scores_normal):len(anom_scores_normal)+len(anom_scores_seizure)],
+             50, density=True, facecolor="r", label="Seizure", alpha=0.5)
+    plt.hist(anom_avg_scores[len(anom_scores_normal) + len(anom_scores_seizure):
+                             len(anom_scores_normal) + len(anom_scores_seizure) + len(anom_scores_pd)],
+             50, density=True, facecolor="g", label="PD", alpha=0.5)
+    plt.hist(anom_avg_scores[-len(anom_scores_rd):],
+             50, density=True, facecolor="k", label="RD", alpha=0.5)
     ax.legend()
     ax.set(xlabel='Anomaly Score [0,1]')
-    plt.savefig(results_save_dir + '/anom_hist_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
+    plt.savefig(results_save_dir + '/anom_hist_all_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
     plt.close()
-    print("P-value between normal and seizure:", ttest_ind(anom_avg_scores[:len(anom_scores_normal)],
-                                        anom_avg_scores[len(anom_scores_normal):], equal_var=False))
+    #print("P-value between normal and seizure:", ttest_ind(anom_avg_scores[:len(anom_scores_normal)],
+    #                                    anom_avg_scores[len(anom_scores_normal):], equal_var=False))
 
     # Test on normal and seizure windows
     # Each time window over all channels has one label. Max over channels, median over window
     test_labels = np.array([0] * len(anom_scores_normal) + [1] * len(anom_scores_seizure))
+    anom_avg_scores_normal_seizure = np.concatenate([anom_avg_scores[:len(test_normal_files)],
+                        anom_avg_scores[len(test_normal_files):len(test_normal_files) + len(test_seizure_files)]], 0)
     # Choose classification threshold
-    auc = roc_auc_score(test_labels, anom_avg_scores)
-    fpr, tpr, thresholds = roc_curve(test_labels, anom_avg_scores)
+    auc = roc_auc_score(test_labels, anom_avg_scores_normal_seizure)
+    fpr, tpr, thresholds = roc_curve(test_labels, anom_avg_scores_normal_seizure)
     gmeans = np.sqrt(tpr * (1 - fpr))
     ix = np.argmax(gmeans)
-    print('Best classification threshold=%f' % (thresholds[ix]))
-    anom_avg_scores_thresholded = np.array(anom_avg_scores > thresholds[ix])
+    print('Normal vs. Seizure classification threshold=%f' % (thresholds[ix]))
+    anom_avg_scores_thresholded = np.array(anom_avg_scores_normal_seizure > thresholds[ix])
     report_dict = classification_report(test_labels, anom_avg_scores_thresholded, output_dict=True)
     precision = (report_dict["macro avg"]["precision"])
     recall = (report_dict["macro avg"]["recall"])
     accuracy = (report_dict["accuracy"])
-    print("Precision, recall, accuracy, AUC", precision, recall, accuracy, auc)
+    print("Normal vs. Seizure precision, recall, accuracy, AUC", precision, recall, accuracy, auc)
 
     # Sample plots for tp, fp, fn, tn
     T = np.arange(1, sub_window_size + 1) / (fs / downsample_factor)
@@ -465,6 +591,43 @@ def plot_reconstruction():
     plt.savefig(results_save_dir + '/false_negative_l_{}_input_{}.pdf'.format(latent_dim, img_size),
                 bbox_inches='tight')
     plt.close()
+
+    # Test on normal and PD windows
+    # Each time window over all channels has one label. Max over channels, median over window
+    test_labels = np.array([0] * len(anom_scores_normal) + [1] * len(anom_scores_pd))
+    anom_avg_scores_normal_pd = np.concatenate([anom_avg_scores[:len(test_normal_files)],
+                                anom_avg_scores[len(test_normal_files) + len(test_seizure_files):
+                                len(test_normal_files) + len(test_seizure_files) + len(test_pd_files)]], 0)
+    # Choose classification threshold
+    auc = roc_auc_score(test_labels, anom_avg_scores_normal_pd)
+    fpr, tpr, thresholds = roc_curve(test_labels, anom_avg_scores_normal_pd)
+    gmeans = np.sqrt(tpr * (1 - fpr))
+    ix = np.argmax(gmeans)
+    print('Normal vs. PD classification threshold=%f' % (thresholds[ix]))
+    anom_avg_scores_thresholded = np.array(anom_avg_scores_normal_pd > thresholds[ix])
+    report_dict = classification_report(test_labels, anom_avg_scores_thresholded, output_dict=True)
+    precision = (report_dict["macro avg"]["precision"])
+    recall = (report_dict["macro avg"]["recall"])
+    accuracy = (report_dict["accuracy"])
+    print("Normal vs. PD precision, recall, accuracy, AUC", precision, recall, accuracy, auc)
+
+    # Test on normal and RD windows
+    # Each time window over all channels has one label. Max over channels, median over window
+    test_labels = np.array([0] * len(anom_scores_normal) + [1] * len(anom_scores_rd))
+    anom_avg_scores_normal_rd = np.concatenate([anom_avg_scores[:len(test_normal_files)],
+                                                anom_avg_scores[-len(test_rd_files):]], 0)
+    # Choose classification threshold
+    auc = roc_auc_score(test_labels, anom_avg_scores_normal_rd)
+    fpr, tpr, thresholds = roc_curve(test_labels, anom_avg_scores_normal_rd)
+    gmeans = np.sqrt(tpr * (1 - fpr))
+    ix = np.argmax(gmeans)
+    print('Normal vs. RD classification threshold=%f' % (thresholds[ix]))
+    anom_avg_scores_thresholded = np.array(anom_avg_scores_normal_rd > thresholds[ix])
+    report_dict = classification_report(test_labels, anom_avg_scores_thresholded, output_dict=True)
+    precision = (report_dict["macro avg"]["precision"])
+    recall = (report_dict["macro avg"]["recall"])
+    accuracy = (report_dict["accuracy"])
+    print("Normal vs. RD precision, recall, accuracy, AUC", precision, recall, accuracy, auc)
 
 if Restore:
     plot_reconstruction()
