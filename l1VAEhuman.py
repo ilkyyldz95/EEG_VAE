@@ -54,7 +54,7 @@ def apply_sliding_window(files, eegs):
         current_signals = current_signals.transpose((1, 0, 2))
         print("Sliding output signal shape batch x channels x time points:", current_signals.shape)
         # take file name only
-        file_name = file_name.split("/")[-1].split(".")[0]
+        file_name = file_name.split("/")[-1].split(".edf")[0]
         current_file_names = np.tile([file_name], (len(current_signals),))
         prep_eegs.extend(current_signals)
         prep_files.extend(current_file_names)
@@ -325,32 +325,38 @@ def plot_reconstruction():
     ax[0, 0].scatter(latent_vars_embedded[len(test_normal_files):, 0],
                  latent_vars_embedded[len(test_normal_files):, 1],
                  c="r", label="Seizure", alpha=0.5)
+    ax[0, 0].set(xlabel="x")
+    ax[0, 0].set(ylabel="y")
     ax[0, 1].scatter(latent_vars_embedded[:len(test_normal_files), 0],
                      latent_vars_embedded[:len(test_normal_files), 2], c="b", label="Normal", alpha=0.5)
     ax[0, 1].scatter(latent_vars_embedded[len(test_normal_files):, 0],
                      latent_vars_embedded[len(test_normal_files):, 2], c="r", label="Seizure", alpha=0.5)
+    ax[0, 1].set(xlabel="x")
+    ax[0, 1].set(ylabel="z")
     ax[1, 0].scatter(latent_vars_embedded[:len(test_normal_files), 1],
                      latent_vars_embedded[:len(test_normal_files), 2], c="b", label="Normal", alpha=0.5)
     ax[1, 0].scatter(latent_vars_embedded[len(test_normal_files):, 1],
                      latent_vars_embedded[len(test_normal_files):, 2], c="r", label="Seizure", alpha=0.5)
-    ax[1, 0].legend()
+    ax[1, 0].set(xlabel="y")
+    ax[1, 0].set(ylabel="z")
+    ax[1, 1].legend()
     plt.savefig(results_save_dir + '/latent_3D_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
     plt.close()
 
-    # Plot anomaly score histograms w.r.t. only categories
     # Median over time to combat noise artifacts, max over time since only one channel may have biomarker
-    anom_avg_scores = np.concatenate([anom_scores_normal, anom_scores_seizure], 0)
-    anom_avg_scores = np.median(anom_avg_scores, -1)
-    detect_channels = np.argmax(anom_avg_scores, -1)
+    anom_scores = np.concatenate([anom_scores_normal, anom_scores_seizure], 0)  # batch x n_channels x sub_window_size
+    anom_avg_scores = np.median(anom_scores, -1)
+    detect_channels = np.argmax(anom_avg_scores, -1)  
     anom_avg_scores = np.max(anom_avg_scores, -1)
+
+    # Plot anomaly score histograms w.r.t. only categories
     plt.figure()
     _, ax = plt.subplots()
     plt.hist(anom_avg_scores[:len(anom_scores_normal)], 50, density=True, facecolor="b", label="Normal", alpha=0.5)
     plt.hist(anom_avg_scores[len(anom_scores_normal):], 50, density=True, facecolor="g", label="Seizure", alpha=0.5)
     ax.legend()
     ax.set(xlabel='Anomaly Score [0,1]')
-    plt.savefig(results_save_dir + '/anom_hist_l_{}_input_{}.pdf'.format(latent_dim, img_size),
-                bbox_inches='tight')
+    plt.savefig(results_save_dir + '/anom_hist_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
     plt.close()
     print("P-value between normal and seizure:", ttest_ind(anom_avg_scores[:len(anom_scores_normal)],
                                         anom_avg_scores[len(anom_scores_normal):], equal_var=False))
@@ -363,7 +369,7 @@ def plot_reconstruction():
     fpr, tpr, thresholds = roc_curve(test_labels, anom_avg_scores)
     gmeans = np.sqrt(tpr * (1 - fpr))
     ix = np.argmax(gmeans)
-    print('Best Threshold=%f, G-Mean=%.3f' % (thresholds[ix], gmeans[ix]))
+    print('Best classification threshold=%f' % (thresholds[ix]))
     anom_avg_scores_thresholded = np.array(anom_avg_scores > thresholds[ix])
     report_dict = classification_report(test_labels, anom_avg_scores_thresholded, output_dict=True)
     precision = (report_dict["macro avg"]["precision"])
@@ -371,130 +377,94 @@ def plot_reconstruction():
     accuracy = (report_dict["accuracy"])
     print("Precision, recall, accuracy, AUC", precision, recall, accuracy, auc)
 
-    # Plot signals and spectograms with smallest and largest anomaly scores over all signals
-    # NORMAL
-    anom_avg_scores_normal = anom_avg_scores[:len(anom_scores_normal)]
-    detect_channels_normal = detect_channels[:len(anom_scores_normal)]
-    sorted_anom_windows_idx = np.argsort(anom_avg_scores_normal)
+    # Sample plots for tp, fp, fn, tn
     T = np.arange(1, sub_window_size + 1) / (fs / downsample_factor)
-    for window_idx in sorted_anom_windows_idx[:3]:
+    true_positive_idx = [idx for idx in range(len(test_labels)) if
+                         test_labels[idx] == 1 and anom_avg_scores_thresholded[idx] == 1]
+    false_positive_idx = [idx for idx in range(len(test_labels)) if
+                         test_labels[idx] == 0 and anom_avg_scores_thresholded[idx] == 1]
+    true_negative_idx = [idx for idx in range(len(test_labels)) if
+                         test_labels[idx] == 0 and anom_avg_scores_thresholded[idx] == 0]
+    false_negative_idx = [idx for idx in range(len(test_labels)) if
+                         test_labels[idx] == 1 and anom_avg_scores_thresholded[idx] == 0]
+    all_test_prep_eegs = np.concatenate([test_normal_prep_eegs, test_seizure_prep_eegs], 0)
+    all_test_files = np.concatenate([test_normal_files, test_seizure_files], 0)
+
+    plt.figure()
+    _, axs = plt.subplots(2, 2)
+    vis_idx = 0
+    for window_idx in true_positive_idx[:4]:
         # Plot original unnormalized signal
-        img = test_normal_prep_eegs[window_idx]
-        anom_img = anom_scores_normal[window_idx]
-        file_name = test_normal_files[window_idx]
-        ch = detect_channels_normal[window_idx]
+        img = all_test_prep_eegs[window_idx]
+        file_name = all_test_files[window_idx]
+        ch = detect_channels[window_idx]
+        axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
+        axs[int(vis_idx / 2), int(vis_idx % 2)].set(title=file_name.split("(")[1].split(")")[0])
+        vis_idx += 1
+    axs[0, 0].set(ylabel=r'$\mu V$')
+    axs[1, 0].set(ylabel=r'$\mu V$')
+    axs[1, 0].set(xlabel=r'Time (s)')
+    axs[1, 1].set(xlabel=r'Time (s)')
+    plt.savefig(results_save_dir + '/true_positive_l_{}_input_{}.pdf'.format(latent_dim, img_size),
+                bbox_inches='tight')
+    plt.close()
 
-        plt.figure()
-        _, axs = plt.subplots()
-        axs.plot(T, img[ch], c="b", linewidth=0.5)
-        axs.fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
-                                facecolor='green', alpha=0.5)
-        axs.set(ylabel=r'$\mu V$')
-        axs.set(xlabel="Time (s) vs. Input (b) and Anomaly (g) for the channel with maximum anomaly")
-        plt.savefig(
-            results_save_dir + '/least_anom_normal_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
-            bbox_inches='tight')
-        plt.close()
-        plt.figure()
-        _, axs = plt.subplots()
-        axs.specgram(img[ch], Fs=fs / downsample_factor)
-        axs.grid()
-        axs.set_ylim([0, 60])
-        axs.set(xlabel="Time (s) vs. Frequency (Hz)")
-        plt.savefig(
-            results_save_dir + '/least_anom_normal_spec_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
-            bbox_inches='tight')
-        plt.close()
-
-    for window_idx in sorted_anom_windows_idx[-3:]:
+    plt.figure()
+    _, axs = plt.subplots(2, 2)
+    vis_idx = 0
+    for window_idx in false_positive_idx[:4]:
         # Plot original unnormalized signal
-        img = test_normal_prep_eegs[window_idx]
-        anom_img = anom_scores_normal[window_idx]
-        file_name = test_normal_files[window_idx]
-        ch = detect_channels_normal[window_idx]
+        img = all_test_prep_eegs[window_idx]
+        file_name = all_test_files[window_idx]
+        ch = detect_channels[window_idx]
+        axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
+        axs[int(vis_idx / 2), int(vis_idx % 2)].set(title=file_name.split("(")[1].split(")")[0])
+        vis_idx += 1
+    axs[0, 0].set(ylabel=r'$\mu V$')
+    axs[1, 0].set(ylabel=r'$\mu V$')
+    axs[1, 0].set(xlabel=r'Time (s)')
+    axs[1, 1].set(xlabel=r'Time (s)')
+    plt.savefig(results_save_dir + '/false_positive_l_{}_input_{}.pdf'.format(latent_dim, img_size),
+                bbox_inches='tight')
+    plt.close()
 
-        plt.figure()
-        _, axs = plt.subplots()
-        axs.plot(T, img[ch], c="b", linewidth=0.5)
-        axs.fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
-                                facecolor='green', alpha=0.5)
-        axs.set(ylabel=r'$\mu V$')
-        axs.set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
-        plt.savefig(results_save_dir + '/most_anom_normal_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
-                    bbox_inches='tight')
-        plt.close()
-        plt.figure()
-        _, axs = plt.subplots()
-        axs.specgram(img[ch], Fs=fs / downsample_factor)
-        axs.grid()
-        axs.set_ylim([0, 60])
-        axs.set(xlabel="Time (s) vs. Frequency (Hz)")
-        plt.savefig(
-            results_save_dir + '/most_anom_normal_spec_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
-            bbox_inches='tight')
-        plt.close()
-
-    # SEIZURE
-    anom_avg_scores_seizure = anom_avg_scores[len(anom_scores_normal):]
-    detect_channels_seizure = detect_channels[len(anom_scores_normal):]
-    sorted_anom_windows_idx = np.argsort(anom_avg_scores_seizure)
-    T = np.arange(1, sub_window_size + 1) / (fs / downsample_factor)
-    for window_idx in sorted_anom_windows_idx[:3]:
+    plt.figure()
+    _, axs = plt.subplots(2, 2)
+    vis_idx = 0
+    for window_idx in true_negative_idx[:4]:
         # Plot original unnormalized signal
-        img = test_seizure_prep_eegs[window_idx]
-        anom_img = anom_scores_seizure[window_idx]
-        file_name = test_seizure_files[window_idx]
-        ch = detect_channels_seizure[window_idx]
+        img = all_test_prep_eegs[window_idx]
+        file_name = all_test_files[window_idx]
+        ch = detect_channels[window_idx]
+        axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
+        axs[int(vis_idx / 2), int(vis_idx % 2)].set(title=file_name.split("(")[1].split(")")[0])
+        vis_idx += 1
+    axs[0, 0].set(ylabel=r'$\mu V$')
+    axs[1, 0].set(ylabel=r'$\mu V$')
+    axs[1, 0].set(xlabel=r'Time (s)')
+    axs[1, 1].set(xlabel=r'Time (s)')
+    plt.savefig(results_save_dir + '/true_negative_l_{}_input_{}.pdf'.format(latent_dim, img_size),
+                bbox_inches='tight')
+    plt.close()
 
-        plt.figure()
-        _, axs = plt.subplots()
-        axs.plot(T, img[ch], c="b", linewidth=0.5)
-        axs.fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
-                                facecolor='green', alpha=0.5)
-        axs.set(ylabel=r'$\mu V$')
-        axs.set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
-        plt.savefig(
-            results_save_dir + '/least_anom_seizure_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
-            bbox_inches='tight')
-        plt.close()
-        plt.figure()
-        _, axs = plt.subplots()
-        axs.specgram(img[ch], Fs=fs / downsample_factor)
-        axs.grid()
-        axs.set_ylim([0, 60])
-        axs.set(xlabel="Time (s) vs. Frequency (Hz)")
-        plt.savefig(
-            results_save_dir + '/least_anom_seizure_spec_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
-            bbox_inches='tight')
-        plt.close()
-
-    for window_idx in sorted_anom_windows_idx[-3:]:
+    plt.figure()
+    _, axs = plt.subplots(2, 2)
+    vis_idx = 0
+    for window_idx in false_negative_idx[:4]:
         # Plot original unnormalized signal
-        img = test_seizure_prep_eegs[window_idx]
-        anom_img = anom_scores_seizure[window_idx]
-        file_name = test_seizure_files[window_idx]
-        ch = detect_channels_seizure[window_idx]
-
-        plt.figure()
-        _, axs = plt.subplots()
-        axs.plot(T, img[ch], c="b", linewidth=0.5)
-        axs.fill_between(T, np.min(img[ch]), np.max(img[ch]), where=anom_img[ch] > 0.5 * np.max(anom_img[ch]),
-                                facecolor='green', alpha=0.5)
-        axs.set(ylabel=r'$\mu V$')
-        axs.set(xlabel="Time (s) vs. Input (b) and Anomaly (g) per channel")
-        plt.savefig(results_save_dir + '/most_anom_seizure_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
-                    bbox_inches='tight')
-        plt.close()
-        plt.figure()
-        _, axs = plt.subplots()
-        axs.specgram(img[ch], Fs=fs / downsample_factor)
-        axs.grid()
-        axs.set_ylim([0, 60])
-        axs.set(xlabel="Time (s) vs. Frequency (Hz)")
-        plt.savefig(
-            results_save_dir + '/most_anom_seizure_spec_{}_l_{}_input_{}.pdf'.format(file_name, latent_dim, img_size),
-            bbox_inches='tight')
-        plt.close()
+        img = all_test_prep_eegs[window_idx]
+        file_name = all_test_files[window_idx]
+        ch = detect_channels[window_idx]
+        axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
+        axs[int(vis_idx / 2), int(vis_idx % 2)].set(title=file_name.split("(")[1].split(")")[0])
+        vis_idx += 1
+    axs[0, 0].set(ylabel=r'$\mu V$')
+    axs[1, 0].set(ylabel=r'$\mu V$')
+    axs[1, 0].set(xlabel=r'Time (s)')
+    axs[1, 1].set(xlabel=r'Time (s)')
+    plt.savefig(results_save_dir + '/false_negative_l_{}_input_{}.pdf'.format(latent_dim, img_size),
+                bbox_inches='tight')
+    plt.close()
 
 if Restore:
     plot_reconstruction()
