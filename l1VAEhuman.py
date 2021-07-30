@@ -471,6 +471,16 @@ def plot_reconstruction():
     plt.figure()
     _, ax = plt.subplots()
     plt.hist(anom_avg_scores[:len(anom_scores_normal)], 50, density=True, facecolor="b", label="Normal", alpha=0.5)
+    plt.hist(anom_avg_scores[len(anom_scores_normal):len(anom_scores_normal) + len(anom_scores_seizure)],
+             50, density=True, facecolor="r", label="Seizure", alpha=0.5)
+    ax.legend()
+    ax.set(xlabel='Biomarker Evidence Score [0,1]')
+    plt.savefig(results_save_dir + '/anom_hist_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
+    plt.close()
+
+    plt.figure()
+    _, ax = plt.subplots()
+    plt.hist(anom_avg_scores[:len(anom_scores_normal)], 50, density=True, facecolor="b", label="Normal", alpha=0.5)
     plt.hist(anom_avg_scores[len(anom_scores_normal):len(anom_scores_normal)+len(anom_scores_seizure)],
              50, density=True, facecolor="r", label="Seizure", alpha=0.5)
     plt.hist(anom_avg_scores[len(anom_scores_normal) + len(anom_scores_seizure):
@@ -479,7 +489,7 @@ def plot_reconstruction():
     plt.hist(anom_avg_scores[-len(anom_scores_rd):],
              50, density=True, facecolor="k", label="RD", alpha=0.5)
     ax.legend()
-    ax.set(xlabel='Anomaly Score [0,1]')
+    ax.set(xlabel='Biomarker Evidence Score [0,1]')
     plt.savefig(results_save_dir + '/anom_hist_all_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
     plt.close()
     #print("P-value between normal and seizure:", ttest_ind(anom_avg_scores[:len(anom_scores_normal)],
@@ -519,15 +529,23 @@ def plot_reconstruction():
     plt.figure()
     _, axs = plt.subplots(2, 2)
     vis_idx = 0
-    for window_idx in true_positive_idx[:4]:
+    plotted_patient_names = []
+    for window_idx in true_positive_idx:
         # Plot original unnormalized signal
         img = all_test_prep_eegs[window_idx]
-        file_name = all_test_files[window_idx]
+        patient_name = all_test_files[window_idx].split("(")[1].split(")")[0]
         ch = detect_channels[window_idx]
-        axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
-        axs[int(vis_idx / 2), int(vis_idx % 2)].set(title=file_name.split("(")[1].split(")")[0])
-        vis_idx += 1
+        if patient_name not in plotted_patient_names or len(plotted_patient_names) % 2 == 1:  # plot at least 2 patients
+            plotted_patient_names.append(patient_name)
+            axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
+            axs[int(vis_idx / 2), int(vis_idx % 2)].set(title="Patient {} from site {}".format(
+                patient_name.split("_")[2], patient_name.split("_")[1]))
+            vis_idx += 1
+            if vis_idx == 4:
+                break
     axs[0, 0].set(ylabel=r'$\mu V$')
+    axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
+    axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')
     axs[1, 0].set(xlabel=r'Time (s)')
     axs[1, 1].set(xlabel=r'Time (s)')
@@ -538,15 +556,23 @@ def plot_reconstruction():
     plt.figure()
     _, axs = plt.subplots(2, 2)
     vis_idx = 0
-    for window_idx in false_positive_idx[:4]:
+    plotted_patient_names = []
+    for window_idx in false_positive_idx:
         # Plot original unnormalized signal
         img = all_test_prep_eegs[window_idx]
-        file_name = all_test_files[window_idx]
+        patient_name = all_test_files[window_idx].split("(")[1].split(")")[0]
         ch = detect_channels[window_idx]
-        axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
-        axs[int(vis_idx / 2), int(vis_idx % 2)].set(title=file_name.split("(")[1].split(")")[0])
-        vis_idx += 1
+        if patient_name not in plotted_patient_names or len(plotted_patient_names) % 2 == 1:  # plot at least 2 patients
+            plotted_patient_names.append(patient_name)
+            axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
+            axs[int(vis_idx / 2), int(vis_idx % 2)].set(title="Patient {} from site {}".format(
+                patient_name.split("_")[2], patient_name.split("_")[1]))
+            vis_idx += 1
+            if vis_idx == 4:
+                break
     axs[0, 0].set(ylabel=r'$\mu V$')
+    axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
+    axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')
     axs[1, 0].set(xlabel=r'Time (s)')
     axs[1, 1].set(xlabel=r'Time (s)')
@@ -557,15 +583,23 @@ def plot_reconstruction():
     plt.figure()
     _, axs = plt.subplots(2, 2)
     vis_idx = 0
-    for window_idx in true_negative_idx[:4]:
+    plotted_patient_names = []
+    for window_idx in true_negative_idx:
         # Plot original unnormalized signal
         img = all_test_prep_eegs[window_idx]
-        file_name = all_test_files[window_idx]
+        patient_name = all_test_files[window_idx].split("(")[1].split(")")[0]
         ch = detect_channels[window_idx]
-        axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
-        axs[int(vis_idx / 2), int(vis_idx % 2)].set(title=file_name.split("(")[1].split(")")[0])
-        vis_idx += 1
+        if patient_name not in plotted_patient_names or len(plotted_patient_names) % 2 == 1:  # plot at least 2 patients
+            plotted_patient_names.append(patient_name)
+            axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
+            axs[int(vis_idx / 2), int(vis_idx % 2)].set(title="Patient {} from site {}".format(
+                patient_name.split("_")[2], patient_name.split("_")[1]))
+            vis_idx += 1
+            if vis_idx == 4:
+                break
     axs[0, 0].set(ylabel=r'$\mu V$')
+    axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
+    axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')
     axs[1, 0].set(xlabel=r'Time (s)')
     axs[1, 1].set(xlabel=r'Time (s)')
@@ -576,15 +610,23 @@ def plot_reconstruction():
     plt.figure()
     _, axs = plt.subplots(2, 2)
     vis_idx = 0
-    for window_idx in false_negative_idx[:4]:
+    plotted_patient_names = []
+    for window_idx in false_negative_idx:
         # Plot original unnormalized signal
         img = all_test_prep_eegs[window_idx]
-        file_name = all_test_files[window_idx]
+        patient_name = all_test_files[window_idx].split("(")[1].split(")")[0]
         ch = detect_channels[window_idx]
-        axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
-        axs[int(vis_idx / 2), int(vis_idx % 2)].set(title=file_name.split("(")[1].split(")")[0])
-        vis_idx += 1
+        if patient_name not in plotted_patient_names or len(plotted_patient_names) % 2 == 1:  # plot at least 2 patients
+            plotted_patient_names.append(patient_name)
+            axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
+            axs[int(vis_idx / 2), int(vis_idx % 2)].set(title="Patient {} from site {}".format(
+                patient_name.split("_")[2], patient_name.split("_")[1]))
+            vis_idx += 1
+            if vis_idx == 4:
+                break
     axs[0, 0].set(ylabel=r'$\mu V$')
+    axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
+    axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')
     axs[1, 0].set(xlabel=r'Time (s)')
     axs[1, 1].set(xlabel=r'Time (s)')
