@@ -395,68 +395,77 @@ def plot_reconstruction():
 
     # Plot 3D latent space w.r.t. only categories
     plt.figure()
-    _, ax = plt.subplots(2, 2)
-    ax[0, 0].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 1],
+    _, ax = plt.subplots(1, 3)
+    ax[0].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 1],
                      c="b", label="Normal", alpha=0.5)
-    ax[0, 0].scatter(latent_vars_embedded[len(test_normal_files):len(test_normal_files)+len(test_seizure_files), 0],
+    ax[0].scatter(latent_vars_embedded[len(test_normal_files):len(test_normal_files)+len(test_seizure_files), 0],
                  latent_vars_embedded[len(test_normal_files):len(test_normal_files)+len(test_seizure_files):, 1],
                  c="r", label="Seizure", alpha=0.5)
-    ax[0, 1].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 2],
+    ax[0].set(xlabel="x vs. y")
+    ax[1].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 2],
                      c="b", label="Normal", alpha=0.5)
-    ax[0, 1].scatter(latent_vars_embedded[len(test_normal_files):len(test_normal_files) + len(test_seizure_files), 0],
+    ax[1].scatter(latent_vars_embedded[len(test_normal_files):len(test_normal_files) + len(test_seizure_files), 0],
                      latent_vars_embedded[len(test_normal_files):len(test_normal_files) + len(test_seizure_files):, 2],
                      c="r", label="Seizure", alpha=0.5)
-    ax[1, 0].scatter(latent_vars_embedded[:len(test_normal_files), 1], latent_vars_embedded[:len(test_normal_files), 2],
+    ax[1].set(xlabel="x vs. z")
+    ax[2].scatter(latent_vars_embedded[:len(test_normal_files), 1], latent_vars_embedded[:len(test_normal_files), 2],
                      c="b", label="Normal", alpha=0.5)
-    ax[1, 0].scatter(latent_vars_embedded[len(test_normal_files):len(test_normal_files) + len(test_seizure_files), 1],
+    ax[2].scatter(latent_vars_embedded[len(test_normal_files):len(test_normal_files) + len(test_seizure_files), 1],
                      latent_vars_embedded[len(test_normal_files):len(test_normal_files) + len(test_seizure_files):, 2],
                      c="r", label="Seizure", alpha=0.5)
-    ax[1, 0].legend()
+    ax[2].set(xlabel="y vs. z")
+    plt.title("Normal vs. Seizure")
     plt.savefig(results_save_dir + '/latent_seizure_3D_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
     plt.close()
 
     plt.figure()
-    _, ax = plt.subplots(2, 2)
-    ax[0, 0].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 1],
+    _, ax = plt.subplots(1, 3)
+    ax[0].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 1],
                      c="b", label="Normal", alpha=0.5)
-    ax[0, 0].scatter(latent_vars_embedded[len(test_normal_files) + len(test_seizure_files):
+    ax[0].scatter(latent_vars_embedded[len(test_normal_files) + len(test_seizure_files):
                                           len(test_normal_files) + len(test_seizure_files) + len(test_pd_files), 0],
                      latent_vars_embedded[len(test_normal_files) + len(test_seizure_files):
                                           len(test_normal_files) + len(test_seizure_files) + len(test_pd_files), 1],
                      c="g", label="PD", alpha=0.5)
-    ax[0, 1].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 2],
+    ax[0].set(xlabel="x vs. y")
+    ax[1].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 2],
                      c="b", label="Normal", alpha=0.5)
-    ax[0, 1].scatter(latent_vars_embedded[len(test_normal_files) + len(test_seizure_files):
+    ax[1].scatter(latent_vars_embedded[len(test_normal_files) + len(test_seizure_files):
                                           len(test_normal_files) + len(test_seizure_files) + len(test_pd_files), 0],
                      latent_vars_embedded[len(test_normal_files) + len(test_seizure_files):
                                           len(test_normal_files) + len(test_seizure_files) + len(test_pd_files), 2],
                      c="g", label="PD", alpha=0.5)
-    ax[1, 0].scatter(latent_vars_embedded[:len(test_normal_files), 1], latent_vars_embedded[:len(test_normal_files), 2],
+    ax[1].set(xlabel="x vs. z")
+    ax[2].scatter(latent_vars_embedded[:len(test_normal_files), 1], latent_vars_embedded[:len(test_normal_files), 2],
                      c="b", label="Normal", alpha=0.5)
-    ax[1, 0].scatter(latent_vars_embedded[len(test_normal_files) + len(test_seizure_files):
+    ax[2].scatter(latent_vars_embedded[len(test_normal_files) + len(test_seizure_files):
                                           len(test_normal_files) + len(test_seizure_files) + len(test_pd_files), 1],
                      latent_vars_embedded[len(test_normal_files) + len(test_seizure_files):
                                           len(test_normal_files) + len(test_seizure_files) + len(test_pd_files), 2],
                      c="g", label="PD", alpha=0.5)
-    ax[1, 0].legend()
+    ax[2].set(xlabel="y vs. z")
+    plt.title("Normal vs. PD")
     plt.savefig(results_save_dir + '/latent_pd_3D_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
     plt.close()
 
     plt.figure()
-    _, ax = plt.subplots(2, 2)
-    ax[0, 0].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 1],
+    _, ax = plt.subplots(1, 3)
+    ax[0].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 1],
                      c="b", label="Normal", alpha=0.5)
-    ax[0, 0].scatter(latent_vars_embedded[-len(test_rd_files):, 0], latent_vars_embedded[-len(test_rd_files):, 1],
+    ax[0].scatter(latent_vars_embedded[-len(test_rd_files):, 0], latent_vars_embedded[-len(test_rd_files):, 1],
                      c="k", label="RD", alpha=0.5)
-    ax[0, 1].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 2],
+    ax[0].set(xlabel="x vs. y")
+    ax[1].scatter(latent_vars_embedded[:len(test_normal_files), 0], latent_vars_embedded[:len(test_normal_files), 2],
                      c="b", label="Normal", alpha=0.5)
-    ax[0, 1].scatter(latent_vars_embedded[-len(test_rd_files):, 0], latent_vars_embedded[-len(test_rd_files):, 2],
+    ax[1].scatter(latent_vars_embedded[-len(test_rd_files):, 0], latent_vars_embedded[-len(test_rd_files):, 2],
                      c="k", label="RD", alpha=0.5)
-    ax[1, 0].scatter(latent_vars_embedded[:len(test_normal_files), 1], latent_vars_embedded[:len(test_normal_files), 2],
+    ax[1].set(xlabel="x vs. z")
+    ax[2].scatter(latent_vars_embedded[:len(test_normal_files), 1], latent_vars_embedded[:len(test_normal_files), 2],
                      c="b", label="Normal", alpha=0.5)
-    ax[1, 0].scatter(latent_vars_embedded[-len(test_rd_files):, 1], latent_vars_embedded[-len(test_rd_files):, 2],
+    ax[2].scatter(latent_vars_embedded[-len(test_rd_files):, 1], latent_vars_embedded[-len(test_rd_files):, 2],
                      c="k", label="RD", alpha=0.5)
-    ax[1, 0].legend()
+    ax[2].set(xlabel="y vs. z")
+    plt.title("Normal vs. RD")
     plt.savefig(results_save_dir + '/latent_rd_3D_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
     plt.close()
 
