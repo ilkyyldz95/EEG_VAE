@@ -469,7 +469,7 @@ def plot_reconstruction():
     plt.savefig(results_save_dir + '/latent_rd_3D_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
     plt.close()
 
-    # Median over time to combat noise artifacts, max over time since only one channel may have biomarker
+    # Median over time to combat noise artifacts, max over time since only one channel may have activity
     anom_scores = np.concatenate([anom_scores_normal, anom_scores_seizure,
                                   anom_scores_pd, anom_scores_rd], 0)  # batch x n_channels x sub_window_size
     anom_avg_scores = np.median(anom_scores, -1)
@@ -483,7 +483,7 @@ def plot_reconstruction():
     plt.hist(anom_avg_scores[len(anom_scores_normal):len(anom_scores_normal) + len(anom_scores_seizure)],
              50, density=True, facecolor="r", label="Seizure", alpha=0.5)
     ax.legend()
-    ax.set(xlabel='Biomarker Evidence Score [0,1]')
+    ax.set(xlabel='Epileptic Activity Evidence Score [0,1]')
     plt.savefig(results_save_dir + '/anom_hist_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
     plt.close()
 
@@ -498,7 +498,7 @@ def plot_reconstruction():
     plt.hist(anom_avg_scores[-len(anom_scores_rd):],
              50, density=True, facecolor="k", label="RD", alpha=0.5)
     ax.legend()
-    ax.set(xlabel='Biomarker Evidence Score [0,1]')
+    ax.set(xlabel='Epileptic Activity Evidence Score [0,1]')
     plt.savefig(results_save_dir + '/anom_hist_all_l_{}_input_{}.pdf'.format(latent_dim, img_size), bbox_inches='tight')
     plt.close()
     #print("P-value between normal and seizure:", ttest_ind(anom_avg_scores[:len(anom_scores_normal)],
