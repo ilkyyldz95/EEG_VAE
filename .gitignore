@@ -1,6 +1,7 @@
 *.pickle
 models*/
 results*/
+example_events/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
