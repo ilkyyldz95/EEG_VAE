@@ -18,6 +18,9 @@ highcut = 50.0
 signal_dir = "/ifs/loni/faculty/dduncan/epibios_collab/iyildiz/human_eeg/"
 label_dir = "/ifs/loni/faculty/dduncan/epibios_collab/iyildiz/human_eeg_completed_reviews/"
 max_signal_length_s = 3600
+# For visualization
+plot_duration_seconds = 300
+plot_duration_threshold = 200
 
 def butter_bandpass(lowcut, highcut, fs, order=4):
     nyq = 0.5 * fs
@@ -32,7 +35,7 @@ def butter_bandpass_filter(data, lowcut, highcut, fs, order=4):
     return y
 
 def prepare_one_signal(patient, file_name, event_windows, eegs, files,
-                       lowcut, highcut, fs):
+                       lowcut, highcut, fs, event_name):
     try:
         tmp = read_raw_edf(file_name, preload=True)
         print(patient, "has signal", file_name)
@@ -44,6 +47,31 @@ def prepare_one_signal(patient, file_name, event_windows, eegs, files,
         signal = tmp.values.T
         print("Number of channels: ", len(signal))
         for (event_start_s, event_duration_s) in event_windows:
+            if event_duration_s < plot_duration_threshold:
+                print("Visualizing window with before and after")
+                plot_time_points = int(plot_duration_seconds * current_fs)
+                T = np.arange(1, plot_time_points + 1) / (current_fs)
+                plot_offset_s = (plot_duration_seconds - event_duration_s) / 2
+                plot_start_s = event_start_s - plot_offset_s
+                plot_end_s = event_start_s + event_duration_s + plot_offset_s
+                for ch in range(len(signal)):
+                    plt.figure()
+                    _, ax = plt.subplots()
+                    signal_plotted = signal[ch, int(current_fs * plot_start_s):
+                                int(current_fs * plot_end_s)]
+                    plt.plot(T, signal_plotted, c="b", linewidth=0.5)
+                    plt.axvline(plot_offset_s, np.min(signal_plotted), np.max(signal_plotted)
+                                , c="r", linewidth=2)
+                    plt.axvline(plot_duration_seconds - plot_offset_s,
+                                np.min(signal_plotted), np.max(signal_plotted)
+                                , c="r", linewidth=2)
+                    plt.title("Patient {} from site {}".format(patient.split("_")[2],
+                                                               patient.split("_")[1]))
+                    ax.set(ylabel=r'$\mu V$', xlabel='Time (s)')
+                    plt.savefig('./example_events/example_{}_{}_{}.pdf'.
+                                format(event_name, patient, ch), bbox_inches='tight')
+                    plt.close()
+
             print("Slicing window", event_start_s, event_start_s + event_duration_s)
             # slice to the desired window
             sliced_signal = signal[:, int(current_fs * event_start_s):
@@ -243,7 +271,7 @@ for seizure_patient, seizure_windows in seizure_signal_dict.items():
                 continue
             seizure_eegs, seizure_files = prepare_one_signal(seizure_patient, file_name,
                             seizure_windows, seizure_eegs, seizure_files,
-                            lowcut, highcut, fs)
+                            lowcut, highcut, fs, event_name="seizure")
             # Save checkpoints
             if counter % 10 == 9:
                 print("%% Counter,", counter)
@@ -302,7 +330,7 @@ for pd_patient, pd_windows in pd_signal_dict.items():
             if counter <= start_counter:
                 continue
             pd_eegs, pd_files = prepare_one_signal(pd_patient, file_name,
-                            pd_windows, pd_eegs, pd_files, lowcut, highcut, fs)
+                            pd_windows, pd_eegs, pd_files, lowcut, highcut, fs, event_name="pd")
             # Save checkpoints
             if counter % 10 == 9:
                 print("%% Counter,", counter)
@@ -331,7 +359,7 @@ for rda_patient, rda_windows in rda_signal_dict.items():
             if counter <= start_counter:
                 continue
             rda_eegs, rda_files = prepare_one_signal(rda_patient, file_name,
-                            rda_windows, rda_eegs, rda_files, lowcut, highcut, fs)
+                            rda_windows, rda_eegs, rda_files, lowcut, highcut, fs, event_name="rda")
             # Save checkpoints
             if counter % 10 == 9:
                 print("%% Counter,", counter)
