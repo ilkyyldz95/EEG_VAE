@@ -301,7 +301,7 @@ for test_normal_patient, test_normal_windows in test_normal_signal_dict.items():
                 continue
             test_normal_eegs, test_normal_files = prepare_one_signal(test_normal_patient, file_name,
                             test_normal_windows, test_normal_eegs, test_normal_files,
-                            lowcut, highcut, fs)
+                            lowcut, highcut, fs, event_name="test_normal")
             # Save checkpoints
             if counter % 10 == 9:
                 print("%% Counter,", counter)
