@@ -169,7 +169,7 @@ for current_file, seizure_windows in seizure_signal_dict.items():
     if counter <= start_counter:
         continue
     file_name = os.path.join(label_dir, current_file.split("_")[0], current_file)
-    seizure_eegs, seizure_files = prepare_one_signal(current_file, file_name,
+    seizure_eegs, seizure_files = prepare_one_signal(file_name,
                     seizure_windows, seizure_eegs, seizure_files, lowcut, highcut, fs)
     # Save checkpoints
     if counter % 10 == 9:

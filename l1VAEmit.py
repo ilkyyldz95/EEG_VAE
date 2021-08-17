@@ -15,11 +15,11 @@ from scipy.signal import spectrogram
 from scipy.stats import ttest_ind
 from sklearn.metrics import roc_curve, accuracy_score, roc_auc_score, f1_score, precision_score, recall_score, classification_report
 
-Restore = False
+Restore = True
 modality = "mit"
 fs = 256.0
-img_size = 7800
-n_channels = 26
+img_size = 11400
+n_channels = 38
 sub_window_size = int(img_size / n_channels)  # sub_window_size / (fs / downsample_factor) second window
 downsample_factor = 2
 print("{} channels with window size {}".format(n_channels, sub_window_size))
@@ -77,7 +77,7 @@ stride = 1
 # VAE training parameters
 batch_size = 128
 checkpoint_epoch = 0
-epoch_num = 250
+epoch_num = 60
 beta = 0.8
 
 # Save folders for trained models and logs
@@ -94,7 +94,18 @@ with open('{}_train_eegs.pickle'.format(modality), 'rb') as handle:
     train_eegs = pickle.load(handle)
 with open('{}_train_files.pickle'.format(modality), 'rb') as handle:
     train_files = pickle.load(handle)
-train_prep_eegs, train_files = apply_sliding_window(train_files, train_eegs)
+# filter nans
+train_eegs_cleaned = []
+train_files_cleaned = []
+count = 0
+for idx in range(len(train_eegs)):
+    if np.any(np.isnan(train_eegs[idx])):
+        count += 1
+    else:
+        train_eegs_cleaned.append(train_eegs[idx])
+        train_files_cleaned.append(train_files[idx])
+print("{} train eegs are cleaned".format(count))
+train_prep_eegs, train_files = apply_sliding_window(train_files_cleaned, train_eegs_cleaned)
 # load dataset via min-max normalization & add image channel dimension
 train_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
                        for img in train_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
@@ -120,10 +131,22 @@ if Restore:
         test_seizure_eegs = pickle.load(handle)
     with open('{}_seizure_files.pickle'.format(modality), 'rb') as handle:
         test_seizure_files = pickle.load(handle)
-    test_seizure_prep_eegs, test_seizure_files = apply_sliding_window(test_seizure_files, test_seizure_eegs)
+    # filter nans
+    test_seizure_eegs_cleaned = []
+    test_seizure_files_cleaned = []
+    count = 0
+    for idx in range(len(test_seizure_eegs)):
+        if np.any(np.isnan(test_seizure_eegs[idx])):
+            count += 1
+        else:
+            test_seizure_eegs_cleaned.append(test_seizure_eegs[idx])
+            test_seizure_files_cleaned.append(test_seizure_files[idx])
+    print("{} seizure eegs are cleaned".format(count))
+    test_seizure_prep_eegs, test_seizure_files = \
+        apply_sliding_window(test_seizure_files_cleaned, test_seizure_eegs_cleaned)
     test_seizure_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
                           for img in test_seizure_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
-    print("Number of test normal, seizure signals:", len(test_normal_imgs), len(test_seizure_imgs))  # 24199 4836
+    print("Number of test normal, seizure signals:", len(test_normal_imgs), len(test_seizure_imgs))  # 93301 5511
 
 class VAE(nn.Module):
     def __init__(self):
@@ -418,16 +441,15 @@ def plot_reconstruction():
     for window_idx in true_positive_idx:
         # Plot original unnormalized signal
         img = normal_seizure_test_prep_eegs[window_idx]
-        patient_name = normal_seizure_test_files[window_idx].split("(")[1].split(")")[0]
+        patient_name = normal_seizure_test_files[window_idx]
         ch = normal_seizure_detect_channels[window_idx]
-        if patient_name not in plotted_patient_names or len(plotted_patient_names) % 2 == 1:  # plot at least 2 patients
-            plotted_patient_names.append(patient_name)
-            axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
-            axs[int(vis_idx / 2), int(vis_idx % 2)].set(title="Patient {} from site {}".format(
-                patient_name.split("_")[2], patient_name.split("_")[1]))
-            vis_idx += 1
-            if vis_idx == 4:
-                break
+        #if patient_name not in plotted_patient_names or len(plotted_patient_names) % 2 == 1:  # plot at least 2 patients
+        plotted_patient_names.append(patient_name)
+        axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
+        axs[int(vis_idx / 2), int(vis_idx % 2)].set(title=patient_name)
+        vis_idx += 1
+        if vis_idx == 4:
+            break
     axs[0, 0].set(ylabel=r'$\mu V$')
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
@@ -445,16 +467,15 @@ def plot_reconstruction():
     for window_idx in false_positive_idx:
         # Plot original unnormalized signal
         img = normal_seizure_test_prep_eegs[window_idx]
-        patient_name = normal_seizure_test_files[window_idx].split("(")[1].split(")")[0]
+        patient_name = normal_seizure_test_files[window_idx]
         ch = normal_seizure_detect_channels[window_idx]
-        if patient_name not in plotted_patient_names or len(plotted_patient_names) % 2 == 1:  # plot at least 2 patients
-            plotted_patient_names.append(patient_name)
-            axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
-            axs[int(vis_idx / 2), int(vis_idx % 2)].set(title="Patient {} from site {}".format(
-                patient_name.split("_")[2], patient_name.split("_")[1]))
-            vis_idx += 1
-            if vis_idx == 4:
-                break
+        #if patient_name not in plotted_patient_names or len(plotted_patient_names) % 2 == 1:  # plot at least 2 patients
+        plotted_patient_names.append(patient_name)
+        axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
+        axs[int(vis_idx / 2), int(vis_idx % 2)].set(title=patient_name)
+        vis_idx += 1
+        if vis_idx == 4:
+            break
     axs[0, 0].set(ylabel=r'$\mu V$')
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
@@ -472,16 +493,15 @@ def plot_reconstruction():
     for window_idx in true_negative_idx:
         # Plot original unnormalized signal
         img = normal_seizure_test_prep_eegs[window_idx]
-        patient_name = normal_seizure_test_files[window_idx].split("(")[1].split(")")[0]
+        patient_name = normal_seizure_test_files[window_idx]
         ch = normal_seizure_detect_channels[window_idx]
-        if patient_name not in plotted_patient_names or len(plotted_patient_names) % 2 == 1:  # plot at least 2 patients
-            plotted_patient_names.append(patient_name)
-            axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
-            axs[int(vis_idx / 2), int(vis_idx % 2)].set(title="Patient {} from site {}".format(
-                patient_name.split("_")[2], patient_name.split("_")[1]))
-            vis_idx += 1
-            if vis_idx == 4:
-                break
+        #if patient_name not in plotted_patient_names or len(plotted_patient_names) % 2 == 1:  # plot at least 2 patients
+        plotted_patient_names.append(patient_name)
+        axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
+        axs[int(vis_idx / 2), int(vis_idx % 2)].set(title=patient_name)
+        vis_idx += 1
+        if vis_idx == 4:
+            break
     axs[0, 0].set(ylabel=r'$\mu V$')
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
@@ -499,16 +519,15 @@ def plot_reconstruction():
     for window_idx in false_negative_idx:
         # Plot original unnormalized signal
         img = normal_seizure_test_prep_eegs[window_idx]
-        patient_name = normal_seizure_test_files[window_idx].split("(")[1].split(")")[0]
+        patient_name = normal_seizure_test_files[window_idx]
         ch = normal_seizure_detect_channels[window_idx]
-        if patient_name not in plotted_patient_names or len(plotted_patient_names) % 2 == 1:  # plot at least 2 patients
-            plotted_patient_names.append(patient_name)
-            axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
-            axs[int(vis_idx / 2), int(vis_idx % 2)].set(title="Patient {} from site {}".format(
-                patient_name.split("_")[2], patient_name.split("_")[1]))
-            vis_idx += 1
-            if vis_idx == 4:
-                break
+        #if patient_name not in plotted_patient_names or len(plotted_patient_names) % 2 == 1:  # plot at least 2 patients
+        plotted_patient_names.append(patient_name)
+        axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
+        axs[int(vis_idx / 2), int(vis_idx % 2)].set(title=patient_name)
+        vis_idx += 1
+        if vis_idx == 4:
+            break
     axs[0, 0].set(ylabel=r'$\mu V$')
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
@@ -518,256 +537,6 @@ def plot_reconstruction():
     plt.savefig(results_save_dir + '/false_negative_l_{}_input_{}.pdf'.format(latent_dim, img_size),
                 bbox_inches='tight')
     plt.close()
-
-    # Plot reconstructions
-    normal_seizure_anom_scores = np.concatenate([anom_scores_normal, anom_scores_seizure], 0)  # batch x n_channels x sub_window_size
-    normal_seizure_anom_mean_scores = np.mean(normal_seizure_anom_scores, -1)
-    normal_seizure_anom_mean_channels = np.argmin(normal_seizure_anom_mean_scores, -1)
-    normal_seizure_anom_mean_scores = np.min(normal_seizure_anom_mean_scores, -1)
-    print("Sorted reconstruction errors range:", np.min(normal_seizure_anom_mean_scores),
-          np.max(normal_seizure_anom_mean_scores))
-    normal_seizure_sorted_anom_score_idx = [idx for idx in np.argsort(normal_seizure_anom_mean_scores)#]
-                                            if test_labels[idx] == 1 and normal_seizure_anom_mean_scores[idx] > 0.001]
-
-    window_idx = normal_seizure_sorted_anom_score_idx[-5]
-    print("Reconstruction error:", normal_seizure_anom_mean_scores[window_idx])
-    img = normal_seizure_test_prep_eegs[window_idx]
-    img_max, img_min = np.max(img), np.min(img)
-    img_recon_normalized = normal_seizure_reconstructions[window_idx]
-    img_recon = img_recon_normalized * (img_max - img_min) + img_min
-    # img = np.squeeze(normal_seizure_test_imgs[window_idx])
-    # img_recon = normal_seizure_reconstructions[window_idx]
-    patient_name = normal_seizure_test_files[window_idx].split("(")[1].split(")")[0]
-    for ch in range(n_channels):
-        plt.figure()
-        _, ax = plt.subplots()
-        #ch = normal_seizure_anom_mean_channels[window_idx]
-        plt.plot(T, img[ch], c="b", linewidth=0.5, label="Input")
-        plt.plot(T, img_recon[ch], c="r", linewidth=0.5, label="Reconstruction")
-        plt.title("Patient {} from site {} and label {}".format(patient_name.split("_")[2], patient_name.split("_")[1],
-                                                                test_labels[window_idx]))
-        ax.set(ylabel=r'$\mu V$')
-        ax.set(xlabel=r'Time (s)')
-        plt.legend()
-        plt.savefig('./example_events/worst_reconstruction_normal_{}_{}_l_{}_input_{}.pdf'.
-                    format(window_idx, ch, latent_dim, img_size), bbox_inches='tight')
-        plt.close()
-
-    window_idx = normal_seizure_sorted_anom_score_idx[-4]
-    print("Reconstruction error:", normal_seizure_anom_mean_scores[window_idx])
-    img = normal_seizure_test_prep_eegs[window_idx]
-    img_max, img_min = np.max(img), np.min(img)
-    img_recon_normalized = normal_seizure_reconstructions[window_idx]
-    img_recon = img_recon_normalized * (img_max - img_min) + img_min
-    # img = np.squeeze(normal_seizure_test_imgs[window_idx])
-    # img_recon = normal_seizure_reconstructions[window_idx]
-    patient_name = normal_seizure_test_files[window_idx].split("(")[1].split(")")[0]
-    for ch in range(n_channels):
-        plt.figure()
-        _, ax = plt.subplots()
-        # ch = normal_seizure_anom_mean_channels[window_idx]
-        plt.plot(T, img[ch], c="b", linewidth=0.5, label="Input")
-        plt.plot(T, img_recon[ch], c="r", linewidth=0.5, label="Reconstruction")
-        plt.title("Patient {} from site {} and label {}".format(patient_name.split("_")[2], patient_name.split("_")[1],
-                                                                test_labels[window_idx]))
-        ax.set(ylabel=r'$\mu V$')
-        ax.set(xlabel=r'Time (s)')
-        plt.legend()
-        plt.savefig('./example_events/worst_reconstruction_normal_{}_{}_l_{}_input_{}.pdf'.
-                    format(window_idx, ch, latent_dim, img_size), bbox_inches='tight')
-        plt.close()
-
-    window_idx = normal_seizure_sorted_anom_score_idx[-3]
-    print("Reconstruction error:", normal_seizure_anom_mean_scores[window_idx])
-    img = normal_seizure_test_prep_eegs[window_idx]
-    img_max, img_min = np.max(img), np.min(img)
-    img_recon_normalized = normal_seizure_reconstructions[window_idx]
-    img_recon = img_recon_normalized * (img_max - img_min) + img_min
-    # img = np.squeeze(normal_seizure_test_imgs[window_idx])
-    # img_recon = normal_seizure_reconstructions[window_idx]
-    patient_name = normal_seizure_test_files[window_idx].split("(")[1].split(")")[0]
-    for ch in range(n_channels):
-        plt.figure()
-        _, ax = plt.subplots()
-        # ch = normal_seizure_anom_mean_channels[window_idx]
-        plt.plot(T, img[ch], c="b", linewidth=0.5, label="Input")
-        plt.plot(T, img_recon[ch], c="r", linewidth=0.5, label="Reconstruction")
-        plt.title("Patient {} from site {} and label {}".format(patient_name.split("_")[2], patient_name.split("_")[1],
-                                                                test_labels[window_idx]))
-        ax.set(ylabel=r'$\mu V$')
-        ax.set(xlabel=r'Time (s)')
-        plt.legend()
-        plt.savefig('./example_events/worst_reconstruction_normal_{}_{}_l_{}_input_{}.pdf'.
-                    format(window_idx, ch, latent_dim, img_size), bbox_inches='tight')
-        plt.close()
-
-    window_idx = normal_seizure_sorted_anom_score_idx[-2]
-    print("Reconstruction error:", normal_seizure_anom_mean_scores[window_idx])
-    img = normal_seizure_test_prep_eegs[window_idx]
-    img_max, img_min = np.max(img), np.min(img)
-    img_recon_normalized = normal_seizure_reconstructions[window_idx]
-    img_recon = img_recon_normalized * (img_max - img_min) + img_min
-    # img = np.squeeze(normal_seizure_test_imgs[window_idx])
-    # img_recon = normal_seizure_reconstructions[window_idx]
-    patient_name = normal_seizure_test_files[window_idx].split("(")[1].split(")")[0]
-    for ch in range(n_channels):
-        plt.figure()
-        _, ax = plt.subplots()
-        # ch = normal_seizure_anom_mean_channels[window_idx]
-        plt.plot(T, img[ch], c="b", linewidth=0.5, label="Input")
-        plt.plot(T, img_recon[ch], c="r", linewidth=0.5, label="Reconstruction")
-        plt.title("Patient {} from site {} and label {}".format(patient_name.split("_")[2], patient_name.split("_")[1],
-                                                                test_labels[window_idx]))
-        ax.set(ylabel=r'$\mu V$')
-        ax.set(xlabel=r'Time (s)')
-        plt.legend()
-        plt.savefig('./example_events/worst_reconstruction_normal_{}_{}_l_{}_input_{}.pdf'.
-                    format(window_idx, ch, latent_dim, img_size), bbox_inches='tight')
-        plt.close()
-
-    window_idx = normal_seizure_sorted_anom_score_idx[-1]
-    print("Reconstruction error:", normal_seizure_anom_mean_scores[window_idx])
-    img = normal_seizure_test_prep_eegs[window_idx]
-    img_max, img_min = np.max(img), np.min(img)
-    img_recon_normalized = normal_seizure_reconstructions[window_idx]
-    img_recon = img_recon_normalized * (img_max - img_min) + img_min
-    # img = np.squeeze(normal_seizure_test_imgs[window_idx])
-    # img_recon = normal_seizure_reconstructions[window_idx]
-    patient_name = normal_seizure_test_files[window_idx].split("(")[1].split(")")[0]
-    for ch in range(n_channels):
-        plt.figure()
-        _, ax = plt.subplots()
-        # ch = normal_seizure_anom_mean_channels[window_idx]
-        plt.plot(T, img[ch], c="b", linewidth=0.5, label="Input")
-        plt.plot(T, img_recon[ch], c="r", linewidth=0.5, label="Reconstruction")
-        plt.title("Patient {} from site {} and label {}".format(patient_name.split("_")[2], patient_name.split("_")[1],
-                                                                test_labels[window_idx]))
-        ax.set(ylabel=r'$\mu V$')
-        ax.set(xlabel=r'Time (s)')
-        plt.legend()
-        plt.savefig('./example_events/worst_reconstruction_normal_{}_{}_l_{}_input_{}.pdf'.
-                    format(window_idx, ch, latent_dim, img_size), bbox_inches='tight')
-        plt.close()
-
-    window_idx = normal_seizure_sorted_anom_score_idx[0]
-    print("Reconstruction error:", normal_seizure_anom_mean_scores[window_idx])
-    img = normal_seizure_test_prep_eegs[window_idx]
-    img_max, img_min = np.max(img), np.min(img)
-    img_recon_normalized = normal_seizure_reconstructions[window_idx]
-    img_recon = img_recon_normalized * (img_max - img_min) + img_min
-    # img = np.squeeze(normal_seizure_test_imgs[window_idx])
-    # img_recon = normal_seizure_reconstructions[window_idx]
-    patient_name = normal_seizure_test_files[window_idx].split("(")[1].split(")")[0]
-    for ch in range(n_channels):
-        plt.figure()
-        _, ax = plt.subplots()
-        # ch = normal_seizure_anom_mean_channels[window_idx]
-        plt.plot(T, img[ch], c="b", linewidth=0.5, label="Input")
-        plt.plot(T, img_recon[ch], c="r", linewidth=0.5, label="Reconstruction")
-        plt.title("Patient {} from site {} and label {}".format(patient_name.split("_")[2], patient_name.split("_")[1],
-                                                                test_labels[window_idx]))
-        ax.set(ylabel=r'$\mu V$')
-        ax.set(xlabel=r'Time (s)')
-        plt.legend()
-        plt.savefig('./example_events/best_reconstruction_normal_{}_{}_l_{}_input_{}.pdf'.
-                    format(window_idx, ch, latent_dim, img_size), bbox_inches='tight')
-        plt.close()
-
-    window_idx = normal_seizure_sorted_anom_score_idx[1]
-    print("Reconstruction error:", normal_seizure_anom_mean_scores[window_idx])
-    img = normal_seizure_test_prep_eegs[window_idx]
-    img_max, img_min = np.max(img), np.min(img)
-    img_recon_normalized = normal_seizure_reconstructions[window_idx]
-    img_recon = img_recon_normalized * (img_max - img_min) + img_min
-    # img = np.squeeze(normal_seizure_test_imgs[window_idx])
-    # img_recon = normal_seizure_reconstructions[window_idx]
-    patient_name = normal_seizure_test_files[window_idx].split("(")[1].split(")")[0]
-    for ch in range(n_channels):
-        plt.figure()
-        _, ax = plt.subplots()
-        # ch = normal_seizure_anom_mean_channels[window_idx]
-        plt.plot(T, img[ch], c="b", linewidth=0.5, label="Input")
-        plt.plot(T, img_recon[ch], c="r", linewidth=0.5, label="Reconstruction")
-        plt.title("Patient {} from site {} and label {}".format(patient_name.split("_")[2], patient_name.split("_")[1],
-                                                                test_labels[window_idx]))
-        ax.set(ylabel=r'$\mu V$')
-        ax.set(xlabel=r'Time (s)')
-        plt.legend()
-        plt.savefig('./example_events/best_reconstruction_normal_{}_{}_l_{}_input_{}.pdf'.
-                    format(window_idx, ch, latent_dim, img_size), bbox_inches='tight')
-        plt.close()
-
-    window_idx = normal_seizure_sorted_anom_score_idx[2]
-    print("Reconstruction error:", normal_seizure_anom_mean_scores[window_idx])
-    img = normal_seizure_test_prep_eegs[window_idx]
-    img_max, img_min = np.max(img), np.min(img)
-    img_recon_normalized = normal_seizure_reconstructions[window_idx]
-    img_recon = img_recon_normalized * (img_max - img_min) + img_min
-    # img = np.squeeze(normal_seizure_test_imgs[window_idx])
-    # img_recon = normal_seizure_reconstructions[window_idx]
-    patient_name = normal_seizure_test_files[window_idx].split("(")[1].split(")")[0]
-    for ch in range(n_channels):
-        plt.figure()
-        _, ax = plt.subplots()
-        # ch = normal_seizure_anom_mean_channels[window_idx]
-        plt.plot(T, img[ch], c="b", linewidth=0.5, label="Input")
-        plt.plot(T, img_recon[ch], c="r", linewidth=0.5, label="Reconstruction")
-        plt.title("Patient {} from site {} and label {}".format(patient_name.split("_")[2], patient_name.split("_")[1],
-                                                                test_labels[window_idx]))
-        ax.set(ylabel=r'$\mu V$')
-        ax.set(xlabel=r'Time (s)')
-        plt.legend()
-        plt.savefig('./example_events/best_reconstruction_normal_{}_{}_l_{}_input_{}.pdf'.
-                    format(window_idx, ch, latent_dim, img_size), bbox_inches='tight')
-        plt.close()
-
-    window_idx = normal_seizure_sorted_anom_score_idx[3]
-    print("Reconstruction error:", normal_seizure_anom_mean_scores[window_idx])
-    img = normal_seizure_test_prep_eegs[window_idx]
-    img_max, img_min = np.max(img), np.min(img)
-    img_recon_normalized = normal_seizure_reconstructions[window_idx]
-    img_recon = img_recon_normalized * (img_max - img_min) + img_min
-    # img = np.squeeze(normal_seizure_test_imgs[window_idx])
-    # img_recon = normal_seizure_reconstructions[window_idx]
-    patient_name = normal_seizure_test_files[window_idx].split("(")[1].split(")")[0]
-    for ch in range(n_channels):
-        plt.figure()
-        _, ax = plt.subplots()
-        # ch = normal_seizure_anom_mean_channels[window_idx]
-        plt.plot(T, img[ch], c="b", linewidth=0.5, label="Input")
-        plt.plot(T, img_recon[ch], c="r", linewidth=0.5, label="Reconstruction")
-        plt.title("Patient {} from site {} and label {}".format(patient_name.split("_")[2], patient_name.split("_")[1],
-                                                                test_labels[window_idx]))
-        ax.set(ylabel=r'$\mu V$')
-        ax.set(xlabel=r'Time (s)')
-        plt.legend()
-        plt.savefig('./example_events/best_reconstruction_normal_{}_{}_l_{}_input_{}.pdf'.
-                    format(window_idx, ch, latent_dim, img_size), bbox_inches='tight')
-        plt.close()
-
-    window_idx = normal_seizure_sorted_anom_score_idx[4]
-    print("Reconstruction error:", normal_seizure_anom_mean_scores[window_idx])
-    img = normal_seizure_test_prep_eegs[window_idx]
-    img_max, img_min = np.max(img), np.min(img)
-    img_recon_normalized = normal_seizure_reconstructions[window_idx]
-    img_recon = img_recon_normalized * (img_max - img_min) + img_min
-    # img = np.squeeze(normal_seizure_test_imgs[window_idx])
-    # img_recon = normal_seizure_reconstructions[window_idx]
-    patient_name = normal_seizure_test_files[window_idx].split("(")[1].split(")")[0]
-    for ch in range(n_channels):
-        plt.figure()
-        _, ax = plt.subplots()
-        # ch = normal_seizure_anom_mean_channels[window_idx]
-        plt.plot(T, img[ch], c="b", linewidth=0.5, label="Input")
-        plt.plot(T, img_recon[ch], c="r", linewidth=0.5, label="Reconstruction")
-        plt.title("Patient {} from site {} and label {}".format(patient_name.split("_")[2], patient_name.split("_")[1],
-                                                                test_labels[window_idx]))
-        ax.set(ylabel=r'$\mu V$')
-        ax.set(xlabel=r'Time (s)')
-        plt.legend()
-        plt.savefig('./example_events/best_reconstruction_normal_{}_{}_l_{}_input_{}.pdf'.
-                    format(window_idx, ch, latent_dim, img_size), bbox_inches='tight')
-        plt.close()
 
 if Restore:
     plot_reconstruction()
