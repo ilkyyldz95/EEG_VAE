@@ -56,10 +56,20 @@ def prepare_one_signal(file_name, event_windows, eegs, files,
             current_eeg = butter_bandpass_filter(sliced_signal, lowcut, highcut, fs)
             eegs.append(current_eeg)
             files.append(file_name)
+            for ch in range(len(current_eeg)):
+                plt.figure()
+                _, ax = plt.subplots()
+                signal_plotted = current_eeg[ch]
+                plt.plot(signal_plotted[:500], c="b", linewidth=0.5)
+                ax.set(ylabel=r'$\mu V$')
+                plt.savefig('./example_events_mit/example_{}_{}.pdf'.
+                            format(file_name.split("/")[-1].split(".")[0], ch), bbox_inches='tight')
+                plt.close()
     except (ValueError, NotImplementedError):
         print("cannot be loaded with", file_name)
     return eegs, files
 
+shortest_duration = 100000
 all_cases = [x[0].split("/")[-1] for x in os.walk(label_dir)][1:]
 print("There are {} cases".format(len(all_cases)))
 training_signal_keys = []
@@ -88,6 +98,9 @@ for case in all_cases:
         elif new_seizure_found and "end time" in line and "seizure" in line:
             print(line)
             end_time = float(line.split(":")[-1].split(" ")[1])
+            duration = end_time - start_time
+            if duration < shortest_duration:
+                shortest_duration = duration
             # each key is a file name, each value is a list of event start and event duration tuples
             # check if this file already has seizure
             if current_file in seizure_signal_dict.keys():
@@ -99,6 +112,7 @@ for case in all_cases:
 print("=> Training signals reviewed", len(training_signal_keys))
 print("=> Seizure signals reviewed", np.sum([len(val_list)
                                        for val_list in seizure_signal_dict.values()]))
+print("=> Shortest seizure duration in seconds", shortest_duration)
 
 train_eegs = []
 train_files = []
