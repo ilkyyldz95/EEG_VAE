@@ -14,11 +14,12 @@ from sklearn.manifold import TSNE
 from scipy.signal import spectrogram
 from scipy.stats import ttest_ind
 from sklearn.metrics import roc_curve, accuracy_score, roc_auc_score, f1_score, precision_score, recall_score, classification_report
+import matplotlib
 
 Restore = False
-modality = "upenn"
+modality = "upenn_extended"
 fs = 500.0
-img_size = 36000  # maximum to cover the shortest activity of 1 secs, already in this length
+img_size = 36000  # 216000 cover the shortest activity of 6 secs
 n_channels = 72
 sub_window_size = int(img_size / n_channels)  # sub_window_size / fs second window
 downsample_factor = 2
@@ -39,14 +40,23 @@ def apply_sliding_window(files, eegs):
     for file_name, signal in zip(files, eegs):
         # signal shape: channels x time points
         print("Input signal shape channels x time points:", signal.shape)
+        current_signals = []
+        for channel_index in range(signal.shape[0]):
+            signal_per_channel_sliding = extract_windows_vectorized(signal[channel_index], sub_window_size,
+                                                                    downsample_factor)
+            current_signals.append(signal_per_channel_sliding)
+        # replicate through channels if there are less channels than max n_channels
+        current_signals = np.array(current_signals)
+        print("Sliding signal shape channels x batch x time points:", current_signals.shape)
         if signal.shape[0] < n_channels:
-            signal = np.tile(signal, [int(np.ceil(n_channels/signal.shape[0])), 1])
-            signal = signal[:n_channels]
+            current_signals = np.tile(current_signals,
+                                      [int(np.ceil(n_channels / signal.shape[0])), 1, 1])
+            current_signals = current_signals[:n_channels]
         # batch x channels x time points
-        current_signals = signal[np.newaxis, :, :]
+        current_signals = current_signals.transpose((1, 0, 2))
         print("Sliding output signal shape batch x channels x time points:", current_signals.shape)
         # take file name only
-        file_name = file_name.split("/")[-1].split(".edf")[0]
+        #file_name = file_name.split("/")[-1].split(".mat")[0].replace("_segment_", "")
         current_file_names = np.tile([file_name], (len(current_signals),))
         prep_eegs.extend(current_signals)
         prep_files.extend(current_file_names)
@@ -71,7 +81,7 @@ batch_size = 32
 checkpoint_epoch = 0
 epoch_num = 200
 beta = 0.8
-learning_rate = 1e-4
+learning_rate = 1e-3
 
 # Save folders for trained models and logs
 model_save_dir = "models_{}".format(modality)
@@ -411,14 +421,14 @@ def plot_reconstruction():
 
     # Sample plots for tp, fp, fn, tn
     T = np.arange(1, sub_window_size + 1) / fs
-    true_positive_idx = [idx for idx in range(len(test_labels)) if
-                         test_labels[idx] == 1 and anom_avg_scores_thresholded[idx] == 1]
-    false_positive_idx = [idx for idx in range(len(test_labels)) if
-                         test_labels[idx] == 0 and anom_avg_scores_thresholded[idx] == 1]
-    true_negative_idx = [idx for idx in range(len(test_labels)) if
-                         test_labels[idx] == 0 and anom_avg_scores_thresholded[idx] == 0]
-    false_negative_idx = [idx for idx in range(len(test_labels)) if
-                         test_labels[idx] == 1 and anom_avg_scores_thresholded[idx] == 0]
+    true_positive_idx = np.random.permutation([idx for idx in range(len(test_labels)) if
+                         test_labels[idx] == 1 and anom_avg_scores_thresholded[idx] == 1])
+    false_positive_idx = np.random.permutation([idx for idx in range(len(test_labels)) if
+                         test_labels[idx] == 0 and anom_avg_scores_thresholded[idx] == 1])
+    true_negative_idx = np.random.permutation([idx for idx in range(len(test_labels)) if
+                         test_labels[idx] == 0 and anom_avg_scores_thresholded[idx] == 0])
+    false_negative_idx = np.random.permutation([idx for idx in range(len(test_labels)) if
+                         test_labels[idx] == 1 and anom_avg_scores_thresholded[idx] == 0])
     normal_seizure_test_imgs = np.concatenate([test_normal_imgs, test_seizure_imgs], 0)
     normal_seizure_test_prep_eegs = np.concatenate([test_normal_prep_eegs, test_seizure_prep_eegs], 0)
     normal_seizure_reconstructions = np.concatenate([recon_normal, recon_seizure], 0)
@@ -444,7 +454,7 @@ def plot_reconstruction():
         if vis_idx == 4:
             break
     axs[0, 0].set(ylabel=r'$\mu V$')
-    matplotlib.rc('ytick', labelsize=14)
+    matplotlib.rc('ytick', labelsize=10)
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')
@@ -471,7 +481,7 @@ def plot_reconstruction():
         if vis_idx == 4:
             break
     axs[0, 0].set(ylabel=r'$\mu V$')
-    matplotlib.rc('ytick', labelsize=14)
+    matplotlib.rc('ytick', labelsize=10)
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')
@@ -498,7 +508,7 @@ def plot_reconstruction():
         if vis_idx == 4:
             break
     axs[0, 0].set(ylabel=r'$\mu V$')
-    matplotlib.rc('ytick', labelsize=14)
+    matplotlib.rc('ytick', labelsize=10)
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')
@@ -525,7 +535,7 @@ def plot_reconstruction():
         if vis_idx == 4:
             break
     axs[0, 0].set(ylabel=r'$\mu V$')
-    matplotlib.rc('ytick', labelsize=14)
+    matplotlib.rc('ytick', labelsize=10)
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')

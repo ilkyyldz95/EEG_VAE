@@ -14,6 +14,7 @@ from sklearn.manifold import TSNE
 from scipy.signal import spectrogram
 from scipy.stats import ttest_ind
 from sklearn.metrics import roc_curve, accuracy_score, roc_auc_score, f1_score, precision_score, recall_score, classification_report
+import matplotlib
 
 Restore = False
 modality = "mit"
@@ -70,7 +71,7 @@ print(' Processor is %s' % (device))
 h_layer_1 = 8
 h_layer_2 = 16
 h_layer_5 = 1000
-latent_dim = 64
+latent_dim = 256
 kernel_size = (4, 4)
 stride = 1
 
@@ -79,7 +80,7 @@ batch_size = 32
 checkpoint_epoch = 0
 epoch_num = 200
 beta = 0.8
-learning_rate = 1e-4
+learning_rate = 1e-3
 
 # Save folders for trained models and logs
 model_save_dir = "models_{}".format(modality)
@@ -419,14 +420,14 @@ def plot_reconstruction():
 
     # Sample plots for tp, fp, fn, tn
     T = np.arange(1, sub_window_size + 1) / fs
-    true_positive_idx = [idx for idx in range(len(test_labels)) if
-                         test_labels[idx] == 1 and anom_avg_scores_thresholded[idx] == 1]
-    false_positive_idx = [idx for idx in range(len(test_labels)) if
-                         test_labels[idx] == 0 and anom_avg_scores_thresholded[idx] == 1]
-    true_negative_idx = [idx for idx in range(len(test_labels)) if
-                         test_labels[idx] == 0 and anom_avg_scores_thresholded[idx] == 0]
-    false_negative_idx = [idx for idx in range(len(test_labels)) if
-                         test_labels[idx] == 1 and anom_avg_scores_thresholded[idx] == 0]
+    true_positive_idx = np.random.permutation([idx for idx in range(len(test_labels)) if
+                         test_labels[idx] == 1 and anom_avg_scores_thresholded[idx] == 1])
+    false_positive_idx = np.random.permutation([idx for idx in range(len(test_labels)) if
+                         test_labels[idx] == 0 and anom_avg_scores_thresholded[idx] == 1])
+    true_negative_idx = np.random.permutation([idx for idx in range(len(test_labels)) if
+                         test_labels[idx] == 0 and anom_avg_scores_thresholded[idx] == 0])
+    false_negative_idx = np.random.permutation([idx for idx in range(len(test_labels)) if
+                         test_labels[idx] == 1 and anom_avg_scores_thresholded[idx] == 0])
     normal_seizure_test_imgs = np.concatenate([test_normal_imgs, test_seizure_imgs], 0)
     normal_seizure_test_prep_eegs = np.concatenate([test_normal_prep_eegs, test_seizure_prep_eegs], 0)
     normal_seizure_reconstructions = np.concatenate([recon_normal, recon_seizure], 0)
@@ -452,7 +453,7 @@ def plot_reconstruction():
         if vis_idx == 4:
             break
     axs[0, 0].set(ylabel=r'$\mu V$')
-    matplotlib.rc('ytick', labelsize=14)
+    matplotlib.rc('ytick', labelsize=6)
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')
@@ -479,7 +480,7 @@ def plot_reconstruction():
         if vis_idx == 4:
             break
     axs[0, 0].set(ylabel=r'$\mu V$')
-    matplotlib.rc('ytick', labelsize=14)
+    matplotlib.rc('ytick', labelsize=6)
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')
@@ -506,7 +507,7 @@ def plot_reconstruction():
         if vis_idx == 4:
             break
     axs[0, 0].set(ylabel=r'$\mu V$')
-    matplotlib.rc('ytick', labelsize=14)
+    matplotlib.rc('ytick', labelsize=6)
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')
@@ -533,7 +534,7 @@ def plot_reconstruction():
         if vis_idx == 4:
             break
     axs[0, 0].set(ylabel=r'$\mu V$')
-    matplotlib.rc('ytick', labelsize=14)
+    matplotlib.rc('ytick', labelsize=6)
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')

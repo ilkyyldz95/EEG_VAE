@@ -17,7 +17,7 @@ fs = 500.0
 lowcut = 0.5
 highcut = 50.0
 label_dir = "/ifs/loni/faculty/dduncan/epibios_collab/iyildiz/clipsupenn/"
-max_signal_length_s = 3600
+concat_count = 20  # shortest number of consecutive same event segments
 
 def butter_bandpass(lowcut, highcut, fs, order=4):
     nyq = 0.5 * fs
@@ -37,8 +37,13 @@ training_signal_keys = []
 seizure_signal_keys = []
 for case in all_patients:
     current_dir = os.path.join(label_dir, case)
-    training_signal_keys.extend([file for file in os.listdir(current_dir) if "_interictal_" in file])
-    seizure_signal_keys.extend([file for file in os.listdir(current_dir) if "_ictal_" in file])
+    # order w.r.t. time
+    all_training_files = np.array([file for file in os.listdir(current_dir) if "_interictal_" in file])
+    all_training_files_order_idx = [float(file.split("_")[-1].split(".mat")[0]) for file in all_training_files]
+    training_signal_keys.extend(all_training_files[np.argsort(all_training_files_order_idx)])
+    all_seizure_files = np.array([file for file in os.listdir(current_dir) if "_ictal_" in file])
+    all_seizure_files_order_idx = [float(file.split("_")[-1].split(".mat")[0]) for file in all_seizure_files]
+    seizure_signal_keys.extend(all_seizure_files[np.argsort(all_seizure_files_order_idx)])
 print("There are {} training signals".format(len(training_signal_keys)))
 print("There are {} seizure signals".format(len(seizure_signal_keys)))
 
@@ -89,10 +94,33 @@ for current_file in training_signal_keys:
     #        pickle.dump(train_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
     #    with open('upenn_train_files_{}.pickle'.format(counter), 'wb') as handle:
     #        pickle.dump(train_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
-with open('upenn_train_eegs.pickle', 'wb') as handle:
-    pickle.dump(train_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
-with open('upenn_train_files.pickle', 'wb') as handle:
-    pickle.dump(train_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
+train_eegs_extended = []
+train_files_extended = []
+current_dir_name = train_files[0].split("/")[-2]
+current_eegs = [train_eegs[0]]
+count = 1
+for eeg, file_name in zip(train_eegs[1:], train_files[1:]):
+    print(file_name)
+    dir_name = file_name.split("/")[-2]
+    if count % concat_count == 0 or dir_name != current_dir_name:  # count or patient renewed
+        # signal: channels x time points
+        current_eegs_concat = np.concatenate(current_eegs, -1)
+        print(current_eegs_concat.shape)
+        train_eegs_extended.append(current_eegs_concat)
+        train_files_extended.append(current_file)
+        # start next patient
+        current_eegs = [eeg]
+        count = 1
+    else:
+        # concatenate over time for concat_count number of times
+        current_eegs.append(eeg)
+        current_file = file_name.split("/")[-1].split("_segment_")[0]
+        count += 1
+    current_dir_name = dir_name
+with open('upenn_extended_train_eegs.pickle', 'wb') as handle:
+    pickle.dump(train_eegs_extended, handle, protocol=pickle.HIGHEST_PROTOCOL)
+with open('upenn_extended_train_files.pickle', 'wb') as handle:
+    pickle.dump(train_files_extended, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 print("*** Processing seizure signals")
 start_counter = 0
@@ -145,10 +173,33 @@ for current_file in seizure_signal_keys:
     #        pickle.dump(seizure_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
     #    with open('upenn_seizure_files_{}.pickle'.format(counter), 'wb') as handle:
     #        pickle.dump(seizure_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
-with open('upenn_seizure_eegs.pickle', 'wb') as handle:
-    pickle.dump(seizure_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
-with open('upenn_seizure_files.pickle', 'wb') as handle:
-    pickle.dump(seizure_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
+seizure_eegs_extended = []
+seizure_files_extended = []
+current_dir_name = seizure_files[0].split("/")[-2]
+current_eegs = [seizure_eegs[0]]
+count = 1
+for eeg, file_name in zip(seizure_eegs[1:], seizure_files[1:]):
+    print(file_name)
+    dir_name = file_name.split("/")[-2]
+    if count % concat_count == 0 or dir_name != current_dir_name:  # count or patient renewed
+        # signal: channels x time points
+        current_eegs_concat = np.concatenate(current_eegs, -1)
+        print(current_eegs_concat.shape)
+        seizure_eegs_extended.append(current_eegs_concat)
+        seizure_files_extended.append(current_file)
+        # start next patient
+        current_eegs = [eeg]
+        count = 1
+    else:
+        # concatenate over time for concat_count number of times
+        current_eegs.append(eeg)
+        current_file = file_name.split("/")[-1].split("_segment_")[0]
+        count += 1
+    current_dir_name = dir_name
+with open('upenn_extended_seizure_eegs.pickle', 'wb') as handle:
+    pickle.dump(seizure_eegs_extended, handle, protocol=pickle.HIGHEST_PROTOCOL)
+with open('upenn_extended_seizure_files.pickle', 'wb') as handle:
+    pickle.dump(seizure_files_extended, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 print("=> Training signals saved", len(train_eegs))
 print("=> Seizure signals saved", len(seizure_eegs))
