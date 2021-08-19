@@ -20,7 +20,7 @@ modality = "human"
 fs = 250.0
 img_size = 14400
 n_channels = 48
-sub_window_size = int(img_size / n_channels)  # sub_window_size / (fs / downsample_factor) second window
+sub_window_size = int(img_size / n_channels)  # sub_window_size / fs second window
 downsample_factor = 2
 print("{} channels with window size {}".format(n_channels, sub_window_size))
 

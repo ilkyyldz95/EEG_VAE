@@ -16,10 +16,10 @@ from scipy.stats import ttest_ind
 from sklearn.metrics import roc_curve, accuracy_score, roc_auc_score, f1_score, precision_score, recall_score, classification_report
 
 Restore = False
-modality = "mit"
-fs = 256.0
-img_size = 58368  # 58368 maximum to cover the shortest activity of 6 secs
-n_channels = 38
+modality = "upenn"
+fs = 500.0
+img_size = 36000  # maximum to cover the shortest activity of 1 secs, already in this length
+n_channels = 72
 sub_window_size = int(img_size / n_channels)  # sub_window_size / fs second window
 downsample_factor = 2
 print("{} channels with window size {}".format(n_channels, sub_window_size))
@@ -39,19 +39,11 @@ def apply_sliding_window(files, eegs):
     for file_name, signal in zip(files, eegs):
         # signal shape: channels x time points
         print("Input signal shape channels x time points:", signal.shape)
-        current_signals = []
-        for channel_index in range(signal.shape[0]):
-            signal_per_channel_sliding = extract_windows_vectorized(signal[channel_index], sub_window_size, downsample_factor)
-            current_signals.append(signal_per_channel_sliding)
-        # replicate through channels if there are less channels than max n_channels
-        current_signals = np.array(current_signals)
-        print("Sliding signal shape channels x batch x time points:", current_signals.shape)
         if signal.shape[0] < n_channels:
-            current_signals = np.tile(current_signals,
-                                      [int(np.ceil(n_channels/signal.shape[0])), 1, 1])
-            current_signals = current_signals[:n_channels]
+            signal = np.tile(signal, [int(np.ceil(n_channels/signal.shape[0])), 1])
+            signal = signal[:n_channels]
         # batch x channels x time points
-        current_signals = current_signals.transpose((1, 0, 2))
+        current_signals = signal[np.newaxis, :, :]
         print("Sliding output signal shape batch x channels x time points:", current_signals.shape)
         # take file name only
         file_name = file_name.split("/")[-1].split(".edf")[0]
