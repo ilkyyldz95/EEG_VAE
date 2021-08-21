@@ -55,6 +55,7 @@ def prepare_one_signal(file_name, event_windows, eegs, files,
             # Filter in 0.5-50 Hz
             current_eeg = butter_bandpass_filter(sliced_signal, lowcut, highcut, fs)
             eegs.append(current_eeg)
+            file_name = file_name.split("/")[-1].split(".edf")[0]
             files.append(file_name)
             for ch in range(len(current_eeg)):
                 plt.figure()
@@ -62,8 +63,7 @@ def prepare_one_signal(file_name, event_windows, eegs, files,
                 signal_plotted = current_eeg[ch]
                 plt.plot(signal_plotted[:500], c="b", linewidth=0.5)
                 ax.set(ylabel=r'$\mu V$')
-                plt.savefig('./example_events_mit/example_{}_{}.pdf'.
-                            format(file_name.split("/")[-1].split(".")[0], ch), bbox_inches='tight')
+                plt.savefig('./example_events_mit/example_{}_{}.pdf'.format(file_name, ch), bbox_inches='tight')
                 plt.close()
     except (ValueError, NotImplementedError):
         print("cannot be loaded with", file_name)
@@ -154,6 +154,7 @@ for current_file in training_signal_keys:
         # Filter in 0.5-50 Hz
         current_eeg = butter_bandpass_filter(signal, lowcut, highcut, fs)
         train_eegs.append(current_eeg)
+        file_name = file_name.split("/")[-1].split(".edf")[0]
         train_files.append(file_name)
     except (ValueError, NotImplementedError):
         print("cannot be loaded with", file_name)

@@ -54,8 +54,6 @@ def apply_sliding_window(files, eegs):
         # batch x channels x time points
         current_signals = current_signals.transpose((1, 0, 2))
         print("Sliding output signal shape batch x channels x time points:", current_signals.shape)
-        # take file name only
-        file_name = file_name.split("/")[-1].split(".edf")[0]
         current_file_names = np.tile([file_name], (len(current_signals),))
         prep_eegs.extend(current_signals)
         prep_files.extend(current_file_names)
@@ -283,8 +281,8 @@ def plot_reconstruction():
     if os.path.exists(results_save_dir + '/anom_scores_normal_l_{}_input_{}_lr_{}.npy'.format(latent_dim, img_size, learning_rate)) and \
         os.path.exists(results_save_dir + '/anom_scores_seizure_l_{}_input_{}_lr_{}.npy'.format(latent_dim, img_size, learning_rate)) and \
         os.path.exists(results_save_dir + '/recon_normal_l_{}_input_{}_lr_{}.npy'.format(latent_dim, img_size, learning_rate)) and \
-        os.path.exists(results_save_dir + '/recon_seizure_l_{}_input_{}_lr_{}.npy'.format(latent_dim, img_size, learning_rate)) :#and \
-        #    os.path.exists(results_save_dir + '/latent_tsne_l_{}_input_{}_lr_{}.npy'.format(latent_dim, img_size, learning_rate)):
+        os.path.exists(results_save_dir + '/recon_seizure_l_{}_input_{}_lr_{}.npy'.format(latent_dim, img_size, learning_rate)) and \
+            os.path.exists(results_save_dir + '/latent_tsne_l_{}_input_{}_lr_{}.npy'.format(latent_dim, img_size, learning_rate)):
         anom_scores_normal = np.load(results_save_dir + '/anom_scores_normal_l_{}_input_{}_lr_{}.npy'.
                                      format(latent_dim, img_size, learning_rate))
         anom_scores_seizure = np.load(results_save_dir + '/anom_scores_seizure_l_{}_input_{}_lr_{}.npy'.
@@ -293,8 +291,8 @@ def plot_reconstruction():
                                      format(latent_dim, img_size, learning_rate))
         recon_seizure = np.load(results_save_dir + '/recon_seizure_l_{}_input_{}_lr_{}.npy'.
                                       format(latent_dim, img_size, learning_rate))
-        #latent_vars_embedded = np.load(results_save_dir + '/latent_tsne_l_{}_input_{}_lr_{}.npy'.
-        #                                       format(latent_dim, img_size, learning_rate))
+        latent_vars_embedded = np.load(results_save_dir + '/latent_tsne_l_{}_input_{}_lr_{}.npy'.
+                                               format(latent_dim, img_size, learning_rate))
     else:
         latent_vars_normal = []  # batch x latent_dim
         latent_vars_seizure = []  # batch x latent_dim
@@ -345,7 +343,7 @@ def plot_reconstruction():
                 format(latent_dim, img_size, learning_rate), recon_normal)
         np.save(results_save_dir + '/recon_seizure_l_{}_input_{}_lr_{}.npy'.
                 format(latent_dim, img_size, learning_rate), recon_seizure)
-    """
+
         # Dimension reduction on latent space
         latent_vars = np.concatenate([latent_vars_normal, latent_vars_seizure], 0)
         print("Latent space matrix original shape:", latent_vars.shape)
@@ -381,7 +379,7 @@ def plot_reconstruction():
     plt.title("Normal vs. Seizure")
     plt.savefig(results_save_dir + '/latent_seizure_3D_l_{}_input_{}_lr_{}.pdf'.format(latent_dim, img_size, learning_rate), bbox_inches='tight')
     plt.close()
-    """
+
     # Median over time to combat noise artifacts, max over time since only one channel may have activity
     anom_scores = np.concatenate([anom_scores_normal, anom_scores_seizure], 0)  # batch x n_channels x sub_window_size
     anom_avg_scores = np.median(anom_scores, -1)
@@ -445,7 +443,6 @@ def plot_reconstruction():
         img = normal_seizure_test_prep_eegs[window_idx]
         patient_name = normal_seizure_test_files[window_idx]
         ch = normal_seizure_detect_channels[window_idx]
-        #if patient_name not in plotted_patient_names or len(plotted_patient_names) % 2 == 1:  # plot at least 2 patients
         plotted_patient_names.append(patient_name)
         axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
         axs[int(vis_idx / 2), int(vis_idx % 2)].set(title=patient_name)
@@ -472,7 +469,6 @@ def plot_reconstruction():
         img = normal_seizure_test_prep_eegs[window_idx]
         patient_name = normal_seizure_test_files[window_idx]
         ch = normal_seizure_detect_channels[window_idx]
-        #if patient_name not in plotted_patient_names or len(plotted_patient_names) % 2 == 1:  # plot at least 2 patients
         plotted_patient_names.append(patient_name)
         axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
         axs[int(vis_idx / 2), int(vis_idx % 2)].set(title=patient_name)
@@ -499,7 +495,6 @@ def plot_reconstruction():
         img = normal_seizure_test_prep_eegs[window_idx]
         patient_name = normal_seizure_test_files[window_idx]
         ch = normal_seizure_detect_channels[window_idx]
-        #if patient_name not in plotted_patient_names or len(plotted_patient_names) % 2 == 1:  # plot at least 2 patients
         plotted_patient_names.append(patient_name)
         axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
         axs[int(vis_idx / 2), int(vis_idx % 2)].set(title=patient_name)
@@ -526,7 +521,6 @@ def plot_reconstruction():
         img = normal_seizure_test_prep_eegs[window_idx]
         patient_name = normal_seizure_test_files[window_idx]
         ch = normal_seizure_detect_channels[window_idx]
-        #if patient_name not in plotted_patient_names or len(plotted_patient_names) % 2 == 1:  # plot at least 2 patients
         plotted_patient_names.append(patient_name)
         axs[int(vis_idx / 2), int(vis_idx % 2)].plot(T, img[ch], c="b", linewidth=0.5)
         axs[int(vis_idx / 2), int(vis_idx % 2)].set(title=patient_name)

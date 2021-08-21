@@ -56,6 +56,7 @@ def prepare_one_signal(file_name, event_windows, eegs, files,
             # Filter in 0.5-50 Hz
             current_eeg = butter_bandpass_filter(sliced_signal, lowcut, highcut, fs)
             eegs.append(current_eeg)
+            file_name = file_name.split("/")[-1].split(".edf")[0]
             files.append(file_name)
     except (ValueError, NotImplementedError):
         print("cannot be loaded with", file_name)
@@ -135,6 +136,7 @@ for case in all_cases:
             # Filter in 0.5-50 Hz
             current_eeg = butter_bandpass_filter(signal, lowcut, highcut, fs)
             train_eegs.append(current_eeg)
+            file_name = file_name.split("/")[-1].split(".edf")[0]
             train_files.append(file_name)
         except (ValueError, NotImplementedError):
             print("cannot be loaded with", file_name)

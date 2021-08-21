@@ -55,8 +55,6 @@ def apply_sliding_window(files, eegs):
         # batch x channels x time points
         current_signals = current_signals.transpose((1, 0, 2))
         print("Sliding output signal shape batch x channels x time points:", current_signals.shape)
-        # take file name only
-        #file_name = file_name.split("/")[-1].split(".mat")[0].replace("_segment_", "")
         current_file_names = np.tile([file_name], (len(current_signals),))
         prep_eegs.extend(current_signals)
         prep_files.extend(current_file_names)
@@ -452,7 +450,6 @@ def plot_reconstruction():
         if vis_idx == 4:
             break
     axs[0, 0].set(ylabel=r'$\mu V$')
-    matplotlib.rc('ytick', labelsize=10)
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')
@@ -478,7 +475,6 @@ def plot_reconstruction():
         if vis_idx == 4:
             break
     axs[0, 0].set(ylabel=r'$\mu V$')
-    matplotlib.rc('ytick', labelsize=10)
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')
@@ -504,7 +500,6 @@ def plot_reconstruction():
         if vis_idx == 4:
             break
     axs[0, 0].set(ylabel=r'$\mu V$')
-    matplotlib.rc('ytick', labelsize=10)
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')
@@ -530,7 +525,6 @@ def plot_reconstruction():
         if vis_idx == 4:
             break
     axs[0, 0].set(ylabel=r'$\mu V$')
-    matplotlib.rc('ytick', labelsize=10)
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')
