@@ -101,8 +101,7 @@ train_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
 print("Range of normalized images of VAE:", np.min(train_imgs), np.max(train_imgs))
 
 # separate normal signals into train and test portions
-np.random.seed(1)
-shuffled_idx = np.random.permutation(range(len(train_imgs)))
+shuffled_idx = range(len(train_imgs))
 train_idx = shuffled_idx[:int(len(shuffled_idx)*0.8)]
 test_idx = shuffled_idx[int(len(shuffled_idx)*0.8):]
 test_normal_prep_eegs, test_normal_imgs, test_normal_files = \

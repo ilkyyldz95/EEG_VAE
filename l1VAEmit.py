@@ -16,7 +16,7 @@ from scipy.stats import ttest_ind
 from sklearn.metrics import roc_curve, accuracy_score, roc_auc_score, f1_score, precision_score, recall_score, classification_report
 import matplotlib
 
-Restore = False
+Restore = True
 modality = "mit"
 fs = 256.0
 img_size = 58368  # 58368 maximum to cover the shortest activity of 6 secs
@@ -114,8 +114,7 @@ train_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
 print("Range of normalized images of VAE:", np.min(train_imgs), np.max(train_imgs))
 
 # separate normal signals into train and test portions
-np.random.seed(1)
-shuffled_idx = np.random.permutation(range(len(train_imgs)))
+shuffled_idx = range(len(train_imgs))
 train_idx = shuffled_idx[:int(len(shuffled_idx)*0.8)]
 test_idx = shuffled_idx[int(len(shuffled_idx)*0.8):]
 test_normal_prep_eegs, test_normal_imgs, test_normal_files = \
@@ -436,6 +435,7 @@ def plot_reconstruction():
     normal_seizure_anom_avg_scores = np.median(normal_seizure_anom_scores, -1)
     normal_seizure_detect_channels = np.argmax(normal_seizure_anom_avg_scores, -1)
 
+    matplotlib.rc('ytick', labelsize=6)
     plt.figure()
     _, axs = plt.subplots(2, 2)
     vis_idx = 0
@@ -453,7 +453,6 @@ def plot_reconstruction():
         if vis_idx == 4:
             break
     axs[0, 0].set(ylabel=r'$\mu V$')
-    matplotlib.rc('ytick', labelsize=6)
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')
@@ -463,6 +462,7 @@ def plot_reconstruction():
                 bbox_inches='tight')
     plt.close()
 
+    matplotlib.rc('ytick', labelsize=6)
     plt.figure()
     _, axs = plt.subplots(2, 2)
     vis_idx = 0
@@ -480,7 +480,6 @@ def plot_reconstruction():
         if vis_idx == 4:
             break
     axs[0, 0].set(ylabel=r'$\mu V$')
-    matplotlib.rc('ytick', labelsize=6)
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')
@@ -490,6 +489,7 @@ def plot_reconstruction():
                 bbox_inches='tight')
     plt.close()
 
+    matplotlib.rc('ytick', labelsize=6)
     plt.figure()
     _, axs = plt.subplots(2, 2)
     vis_idx = 0
@@ -507,7 +507,6 @@ def plot_reconstruction():
         if vis_idx == 4:
             break
     axs[0, 0].set(ylabel=r'$\mu V$')
-    matplotlib.rc('ytick', labelsize=6)
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')
@@ -517,6 +516,7 @@ def plot_reconstruction():
                 bbox_inches='tight')
     plt.close()
 
+    matplotlib.rc('ytick', labelsize=6)
     plt.figure()
     _, axs = plt.subplots(2, 2)
     vis_idx = 0
@@ -534,7 +534,6 @@ def plot_reconstruction():
         if vis_idx == 4:
             break
     axs[0, 0].set(ylabel=r'$\mu V$')
-    matplotlib.rc('ytick', labelsize=6)
     axs[0, 0].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[0, 1].tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # hide x ticks for top 2
     axs[1, 0].set(ylabel=r'$\mu V$')

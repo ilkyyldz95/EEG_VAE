@@ -77,7 +77,7 @@ seizure_signal_dict = dict()
 for case in all_cases:
     current_dir = os.path.join(label_dir, case)
     # Read summary
-    with open(os.path.join(current_dir, case + "-summary.txt")) as f:
+    with open(os.path.join(current_dir, case + "-summary.txt")) as f:  # this is actually ordered in time
         lines = [line.rstrip() for line in f]
     new_seizure_found = False
     for line in lines:
