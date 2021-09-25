@@ -7,7 +7,7 @@ import time
 import pickle
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
-from sklearn.cluster import AgglomerativeClustering
+from sklearn.cluster import AgglomerativeClustering, KMeans
 from scipy.signal import spectrogram
 from scipy.stats import ttest_ind
 from sklearn.metrics import roc_curve, accuracy_score, roc_auc_score, f1_score, precision_score, recall_score, classification_report
@@ -114,6 +114,8 @@ orig_array = np.concatenate([test_normal_imgs, test_seizure_imgs], 0)
 print("Latent space matrix original shape:", orig_array.shape)
 X = TSNE(n_components=latent_dim).fit_transform(orig_array)
 print("Latent space matrix reduced shape:", X.shape)
+
+# Hierarchical clustering
 cluster = AgglomerativeClustering(n_clusters=2, affinity='euclidean', linkage='ward')
 cluster.fit_predict(X)
 pred_labels = cluster.labels_
@@ -123,13 +125,31 @@ auc = roc_auc_score(test_labels, pred_labels)
 fpr, tpr, thresholds = roc_curve(test_labels, pred_labels)
 gmeans = np.sqrt(tpr * (1 - fpr))
 ix = np.argmax(gmeans)
-print('Normal vs. Seizure classification threshold=%f' % (thresholds[ix]))
+print('Hierarchical Normal vs. Seizure classification threshold=%f' % (thresholds[ix]))
 pred_labels_thresholded = np.array(pred_labels > thresholds[ix])
 report_dict = classification_report(test_labels, pred_labels_thresholded, output_dict=True)
 precision = (report_dict["macro avg"]["precision"])
 recall = (report_dict["macro avg"]["recall"])
 accuracy = (report_dict["accuracy"])
-print("Normal vs. Seizure precision, recall, accuracy, AUC", precision, recall, accuracy, auc)
+print("Hierarchical Normal vs. Seizure precision, recall, accuracy, AUC", precision, recall, accuracy, auc)
+
+# K-means clustering
+cluster = KMeans(n_clusters=2)
+cluster.fit(X)
+pred_labels = cluster.labels_
+test_labels = np.array([0] * len(test_normal_imgs) + [1] * len(test_seizure_imgs))
+# Choose classification threshold
+auc = roc_auc_score(test_labels, pred_labels)
+fpr, tpr, thresholds = roc_curve(test_labels, pred_labels)
+gmeans = np.sqrt(tpr * (1 - fpr))
+ix = np.argmax(gmeans)
+print('K-means Normal vs. Seizure classification threshold=%f' % (thresholds[ix]))
+pred_labels_thresholded = np.array(pred_labels > thresholds[ix])
+report_dict = classification_report(test_labels, pred_labels_thresholded, output_dict=True)
+precision = (report_dict["macro avg"]["precision"])
+recall = (report_dict["macro avg"]["recall"])
+accuracy = (report_dict["accuracy"])
+print("K-means Normal vs. Seizure precision, recall, accuracy, AUC", precision, recall, accuracy, auc)
 
 ########################################
 modality = "upenn_extended"
@@ -196,6 +216,8 @@ orig_array = np.concatenate([test_normal_imgs, test_seizure_imgs], 0)
 print("Latent space matrix original shape:", orig_array.shape)
 X = TSNE(n_components=latent_dim).fit_transform(orig_array)
 print("Latent space matrix reduced shape:", X.shape)
+
+# Hierarchical clustering
 cluster = AgglomerativeClustering(n_clusters=2, affinity='euclidean', linkage='ward')
 cluster.fit_predict(X)
 pred_labels = cluster.labels_
@@ -205,10 +227,28 @@ auc = roc_auc_score(test_labels, pred_labels)
 fpr, tpr, thresholds = roc_curve(test_labels, pred_labels)
 gmeans = np.sqrt(tpr * (1 - fpr))
 ix = np.argmax(gmeans)
-print('Normal vs. Seizure classification threshold=%f' % (thresholds[ix]))
+print('Hierarchical Normal vs. Seizure classification threshold=%f' % (thresholds[ix]))
 pred_labels_thresholded = np.array(pred_labels > thresholds[ix])
 report_dict = classification_report(test_labels, pred_labels_thresholded, output_dict=True)
 precision = (report_dict["macro avg"]["precision"])
 recall = (report_dict["macro avg"]["recall"])
 accuracy = (report_dict["accuracy"])
-print("Normal vs. Seizure precision, recall, accuracy, AUC", precision, recall, accuracy, auc)
+print("Hierarchical Normal vs. Seizure precision, recall, accuracy, AUC", precision, recall, accuracy, auc)
+
+# K-means clustering
+cluster = KMeans(n_clusters=2)
+cluster.fit(X)
+pred_labels = cluster.labels_
+test_labels = np.array([0] * len(test_normal_imgs) + [1] * len(test_seizure_imgs))
+# Choose classification threshold
+auc = roc_auc_score(test_labels, pred_labels)
+fpr, tpr, thresholds = roc_curve(test_labels, pred_labels)
+gmeans = np.sqrt(tpr * (1 - fpr))
+ix = np.argmax(gmeans)
+print('K-means Normal vs. Seizure classification threshold=%f' % (thresholds[ix]))
+pred_labels_thresholded = np.array(pred_labels > thresholds[ix])
+report_dict = classification_report(test_labels, pred_labels_thresholded, output_dict=True)
+precision = (report_dict["macro avg"]["precision"])
+recall = (report_dict["macro avg"]["recall"])
+accuracy = (report_dict["accuracy"])
+print("K-means Normal vs. Seizure precision, recall, accuracy, AUC", precision, recall, accuracy, auc)
