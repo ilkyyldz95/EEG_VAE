@@ -104,6 +104,11 @@ print("=> Training signals reviewed", np.sum([len(val_list)
                                        for val_list in train_signal_dict.values()]))
 print("=> Seizure signals reviewed", np.sum([len(val_list)
                                        for val_list in seizure_signal_dict.values()]))
+class_ratio = np.sum([len(val_list)
+                                       for val_list in seizure_signal_dict.values()]) / \
+                np.sum([len(val_list)
+                                       for val_list in train_signal_dict.values()])
+print("=> Class ratio", class_ratio)
 print("=> Shortest seizure duration in seconds", shortest_duration)
 """
 => Training signals reviewed 4406
@@ -118,7 +123,7 @@ seizure_files = []
 
 max_counter = 190
 print("*** Processing train signals")
-start_counter = 149
+start_counter = 0
 counter = 0
 # Load previously saved checkpoint
 if start_counter > 0:
@@ -168,6 +173,11 @@ for current_file, seizure_windows in seizure_signal_dict.items():
             pickle.dump(seizure_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
         with open('tuh_seizure_files_{}.pickle'.format(counter), 'wb') as handle:
             pickle.dump(seizure_files, handle, protocol=pickle.HIGHEST_PROTOCOL)
+# preserve class ratio
+if len(seizure_files) / len(train_files) > class_ratio:
+    seizure_eegs = seizure_eegs[:int(len(train_eegs) * class_ratio)]
+    seizure_files = seizure_files[:int(len(train_files) * class_ratio)]
+
 with open('tuh_seizure_eegs.pickle', 'wb') as handle:
     pickle.dump(seizure_eegs, handle, protocol=pickle.HIGHEST_PROTOCOL)
 with open('tuh_seizure_files.pickle', 'wb') as handle:
