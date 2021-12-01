@@ -194,16 +194,38 @@ for idx in range(len(train_eegs)):
         train_eegs_cleaned.append(train_eegs[idx])
         train_files_cleaned.append(train_files[idx])
 print("{} train eegs are cleaned".format(count))
-train_prep_eegs, train_files = apply_sliding_window(train_files_cleaned, train_eegs_cleaned)
+all_normal_prep_eegs, all_normal_files = apply_sliding_window(train_files_cleaned, train_eegs_cleaned)
 # load dataset via min-max normalization & add image channel dimension
-train_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
-                       for img in train_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
-print("Range of normalized images of VAE:", np.min(train_imgs), np.max(train_imgs))
+all_normal_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
+                       for img in all_normal_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
+print("Range of normalized images of VAE:", np.min(all_normal_imgs), np.max(all_normal_imgs))
+
+if Restore:
+    # Load test EEG data
+    with open('{}_seizure_eegs.pickle'.format(modality), 'rb') as handle:
+        test_seizure_eegs = pickle.load(handle)
+    with open('{}_seizure_files.pickle'.format(modality), 'rb') as handle:
+        test_seizure_files = pickle.load(handle)
+    # filter nans
+    test_seizure_eegs_cleaned = []
+    test_seizure_files_cleaned = []
+    count = 0
+    for idx in range(len(test_seizure_eegs)):
+        if np.any(np.isnan(test_seizure_eegs[idx])):
+            count += 1
+        else:
+            test_seizure_eegs_cleaned.append(test_seizure_eegs[idx])
+            test_seizure_files_cleaned.append(test_seizure_files[idx])
+    print("{} seizure eegs are cleaned".format(count))
+    test_seizure_prep_eegs, test_seizure_files = \
+        apply_sliding_window(test_seizure_files_cleaned, test_seizure_eegs_cleaned)
+    test_seizure_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
+                                  for img in test_seizure_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
 
 # separate normal signals into train and test portions
 kf = KFold(n_splits=3)
 fold_idx = 0
-for train_idx, test_idx in kf.split(range(len(train_imgs)-1)):
+for train_idx, test_idx in kf.split(range(len(all_normal_imgs))):
     fold_idx += 1
     PATH_vae = model_save_dir + '/betaVAE_l_{}_input_{}_lr_{}_fold_{}'.format(latent_dim, img_size, learning_rate,
                                                                               fold_idx)
@@ -212,36 +234,13 @@ for train_idx, test_idx in kf.split(range(len(train_imgs)-1)):
     #train_idx = shuffled_idx[:int(len(shuffled_idx)*0.8)]
     #test_idx = shuffled_idx[int(len(shuffled_idx)*0.8):]
     test_normal_prep_eegs, test_normal_imgs, test_normal_files = \
-        train_prep_eegs[test_idx], train_imgs[test_idx], train_files[test_idx]
+        all_normal_prep_eegs[test_idx], all_normal_imgs[test_idx], all_normal_files[test_idx]
     train_prep_eegs, train_imgs, train_files = \
-        train_prep_eegs[train_idx], train_imgs[train_idx], train_files[train_idx]
+        all_normal_prep_eegs[train_idx], all_normal_imgs[train_idx], all_normal_files[train_idx]
 
     # Train data loader
     train_imgs = torch.FloatTensor(train_imgs)
     train_loader = torch.utils.data.DataLoader(train_imgs, batch_size=batch_size, shuffle=True)
-
-    if Restore:
-        # Load test EEG data
-        with open('{}_seizure_eegs.pickle'.format(modality), 'rb') as handle:
-            test_seizure_eegs = pickle.load(handle)
-        with open('{}_seizure_files.pickle'.format(modality), 'rb') as handle:
-            test_seizure_files = pickle.load(handle)
-        # filter nans
-        test_seizure_eegs_cleaned = []
-        test_seizure_files_cleaned = []
-        count = 0
-        for idx in range(len(test_seizure_eegs)):
-            if np.any(np.isnan(test_seizure_eegs[idx])):
-                count += 1
-            else:
-                test_seizure_eegs_cleaned.append(test_seizure_eegs[idx])
-                test_seizure_files_cleaned.append(test_seizure_files[idx])
-        print("{} seizure eegs are cleaned".format(count))
-        test_seizure_prep_eegs, test_seizure_files = \
-            apply_sliding_window(test_seizure_files_cleaned, test_seizure_eegs_cleaned)
-        test_seizure_imgs = np.array([(img - np.min(img)) / (np.max(img) - np.min(img))
-                              for img in test_seizure_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
-        print("Number of test normal, seizure signals:", len(test_normal_imgs), len(test_seizure_imgs))  # 93301 5511
 
     # training
     if not Restore:
@@ -279,6 +278,7 @@ for train_idx, test_idx in kf.split(range(len(train_imgs)-1)):
         print("Best loss and epoch:", best_loss, best_epoch)
 
     if Restore:
+        print("Number of test normal, seizure signals:", len(test_normal_imgs), len(test_seizure_imgs))  # 93301 5511
         vae.load_state_dict(torch.load(PATH_vae + "_best", map_location=lambda storage, loc: storage))
         #plot_reconstruction()
         #def plot_reconstruction():
@@ -312,6 +312,7 @@ for train_idx, test_idx in kf.split(range(len(train_imgs)-1)):
                 img_variable = img_variable.unsqueeze(0)
                 img_variable = img_variable.to(device)
                 test_imgs_z_mu, test_imgs_z_scale = vae.Encoder(img_variable)
+                
                 # Repeat and average reconstruction
                 test_imgs_rec = []  # img_size vector
                 for _ in range(5):
@@ -378,7 +379,7 @@ for train_idx, test_idx in kf.split(range(len(train_imgs)-1)):
             else:
                 latent_vars_embedded = np.load(results_save_dir + '/latent_tsne_l_{}_input_{}_lr_{}.npy'.
                                                format(latent_dim, img_size, learning_rate))
-
+        
         # Plot 3D latent space w.r.t. only categories
         plt.figure()
         _, ax = plt.subplots(1, 3)
