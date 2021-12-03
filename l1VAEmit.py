@@ -17,7 +17,7 @@ from scipy.stats import ttest_ind
 from sklearn.metrics import roc_curve, accuracy_score, roc_auc_score, f1_score, precision_score, recall_score, classification_report
 import matplotlib
 
-Restore = False
+Restore = True
 modality = "mit"
 fs = 256.0
 img_size = 58368  # 58368 maximum to cover the shortest activity of 6 secs
@@ -222,27 +222,19 @@ if Restore:
                                   for img in test_seizure_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
 
 # separate normal signals into train and test portions
-kf = KFold(n_splits=3)
+kf = KFold(n_splits=5)
 fold_idx = 0
 for train_idx, test_idx in kf.split(range(len(all_normal_imgs))):
     fold_idx += 1
     PATH_vae = model_save_dir + '/betaVAE_l_{}_input_{}_lr_{}_fold_{}'.format(latent_dim, img_size, learning_rate,
                                                                               fold_idx)
-    checkpoint_epoch = 0
-    #shuffled_idx = range(len(train_imgs))
-    #train_idx = shuffled_idx[:int(len(shuffled_idx)*0.8)]
-    #test_idx = shuffled_idx[int(len(shuffled_idx)*0.8):]
-    test_normal_prep_eegs, test_normal_imgs, test_normal_files = \
-        all_normal_prep_eegs[test_idx], all_normal_imgs[test_idx], all_normal_files[test_idx]
-    train_prep_eegs, train_imgs, train_files = \
-        all_normal_prep_eegs[train_idx], all_normal_imgs[train_idx], all_normal_files[train_idx]
-
-    # Train data loader
-    train_imgs = torch.FloatTensor(train_imgs)
-    train_loader = torch.utils.data.DataLoader(train_imgs, batch_size=batch_size, shuffle=True)
 
     # training
     if not Restore:
+        checkpoint_epoch = 0
+        # Train data loader
+        train_loader = torch.utils.data.DataLoader(torch.FloatTensor(all_normal_imgs[train_idx]), batch_size=batch_size, shuffle=True)
+
         print("Training...")
         best_loss = 1e10
         # resume from checkpoint
@@ -277,10 +269,10 @@ for train_idx, test_idx in kf.split(range(len(all_normal_imgs))):
         print("Best loss and epoch:", best_loss, best_epoch)
 
     if Restore:
+        test_normal_prep_eegs, test_normal_imgs, test_normal_files = \
+            all_normal_prep_eegs[test_idx], all_normal_imgs[test_idx], all_normal_files[test_idx]
         print("Number of test normal, seizure signals:", len(test_normal_imgs), len(test_seizure_imgs))  # 93301 5511
         vae.load_state_dict(torch.load(PATH_vae + "_best", map_location=lambda storage, loc: storage))
-        #plot_reconstruction()
-        #def plot_reconstruction():
         vae.eval()
 
         # Load if results are already saved
@@ -311,7 +303,7 @@ for train_idx, test_idx in kf.split(range(len(all_normal_imgs))):
                 img_variable = img_variable.unsqueeze(0)
                 img_variable = img_variable.to(device)
                 test_imgs_z_mu, test_imgs_z_scale = vae.Encoder(img_variable)
-                
+
                 # Repeat and average reconstruction
                 test_imgs_rec = []  # img_size vector
                 for _ in range(5):
@@ -363,24 +355,24 @@ for train_idx, test_idx in kf.split(range(len(all_normal_imgs))):
             np.save(results_save_dir + '/recon_seizure_l_{}_input_{}_lr_{}_fold_{}.npy'.
                     format(latent_dim, img_size, learning_rate, fold_idx), recon_seizure)
 
-            if not os.path.exists(
-                    results_save_dir + '/latent_tsne_l_{}_input_{}_lr_{}.npy'.format(latent_dim, img_size,
-                                                                                     learning_rate)):
-                # Dimension reduction on latent space
-                latent_vars = np.concatenate([latent_vars_normal, latent_vars_seizure], 0)
-                print("Latent space matrix original shape:", latent_vars.shape)
-                if latent_dim > 3:
-                    latent_vars_embedded_seizure = TSNE(n_components=3).fit_transform(latent_vars)
-                else:
-                    latent_vars_embedded_seizure = np.copy(latent_vars)
-                latent_vars_embedded = np.concatenate([latent_vars_embedded_seizure], 0)
-                np.save(results_save_dir + '/latent_tsne_l_{}_input_{}_lr_{}.npy'.format(latent_dim, img_size,
-                                                                                         learning_rate),
-                        latent_vars_embedded)
-                print("Latent space matrix reduced shape:", latent_vars_embedded.shape)
+        if not os.path.exists(
+                results_save_dir + '/latent_tsne_l_{}_input_{}_lr_{}.npy'.format(latent_dim, img_size,
+                                                                                 learning_rate)):
+            # Dimension reduction on latent space
+            latent_vars = np.concatenate([latent_vars_normal, latent_vars_seizure], 0)
+            print("Latent space matrix original shape:", latent_vars.shape)
+            if latent_dim > 3:
+                latent_vars_embedded_seizure = TSNE(n_components=3).fit_transform(latent_vars)
             else:
-                latent_vars_embedded = np.load(results_save_dir + '/latent_tsne_l_{}_input_{}_lr_{}.npy'.
-                                               format(latent_dim, img_size, learning_rate))
+                latent_vars_embedded_seizure = np.copy(latent_vars)
+            latent_vars_embedded = np.concatenate([latent_vars_embedded_seizure], 0)
+            np.save(results_save_dir + '/latent_tsne_l_{}_input_{}_lr_{}.npy'.format(latent_dim, img_size,
+                                                                                     learning_rate),
+                    latent_vars_embedded)
+            print("Latent space matrix reduced shape:", latent_vars_embedded.shape)
+        else:
+            latent_vars_embedded = np.load(results_save_dir + '/latent_tsne_l_{}_input_{}_lr_{}.npy'.
+                                           format(latent_dim, img_size, learning_rate))
 
         # Plot 3D latent space w.r.t. only categories
         plt.figure()

@@ -17,7 +17,7 @@ from scipy.stats import ttest_ind
 from sklearn.metrics import roc_curve, accuracy_score, roc_auc_score, f1_score, precision_score, recall_score, classification_report
 import matplotlib
 
-Restore = False
+Restore = True
 modality = "tuh"
 fs = 250.0
 img_size = 17480  # to cover shortest activity of 1.84 s
@@ -79,7 +79,7 @@ stride = 1
 batch_size = 32
 epoch_num = 200
 beta = 0.8
-learning_rate = 1e-3
+learning_rate = 1e-4
 
 # Save folders for trained models and logs
 model_save_dir = "models_{}".format(modality)
@@ -223,7 +223,7 @@ if Restore:
                                   for img in test_seizure_prep_eegs])[:, np.newaxis, :, :]  # batch x 1 x channels x time points
 
 # separate normal signals into train and test portions
-kf = KFold(n_splits=3)
+kf = KFold(n_splits=5)
 fold_idx = 0
 for train_idx, test_idx in kf.split(range(len(all_normal_imgs))):
     fold_idx += 1
@@ -364,22 +364,22 @@ for train_idx, test_idx in kf.split(range(len(all_normal_imgs))):
             np.save(results_save_dir + '/recon_seizure_l_{}_input_{}_lr_{}_fold_{}.npy'.
                     format(latent_dim, img_size, learning_rate, fold_idx), recon_seizure)
 
-            if not os.path.exists(
-                results_save_dir + '/latent_tsne_l_{}_input_{}_lr_{}.npy'.format(latent_dim, img_size, learning_rate)):
-                # Dimension reduction on latent space
-                latent_vars = np.concatenate([latent_vars_normal, latent_vars_seizure], 0)
-                print("Latent space matrix original shape:", latent_vars.shape)
-                if latent_dim > 3:
-                    latent_vars_embedded_seizure = TSNE(n_components=3).fit_transform(latent_vars)
-                else:
-                    latent_vars_embedded_seizure = np.copy(latent_vars)
-                latent_vars_embedded = np.concatenate([latent_vars_embedded_seizure], 0)
-                np.save(results_save_dir + '/latent_tsne_l_{}_input_{}_lr_{}.npy'.format(latent_dim, img_size, learning_rate), latent_vars_embedded)
-                print("Latent space matrix reduced shape:", latent_vars_embedded.shape)
+        if not os.path.exists(
+            results_save_dir + '/latent_tsne_l_{}_input_{}_lr_{}.npy'.format(latent_dim, img_size, learning_rate)):
+            # Dimension reduction on latent space
+            latent_vars = np.concatenate([latent_vars_normal, latent_vars_seizure], 0)
+            print("Latent space matrix original shape:", latent_vars.shape)
+            if latent_dim > 3:
+                latent_vars_embedded_seizure = TSNE(n_components=3).fit_transform(latent_vars)
             else:
-                latent_vars_embedded = np.load(results_save_dir + '/latent_tsne_l_{}_input_{}_lr_{}.npy'.
-                                               format(latent_dim, img_size, learning_rate))
-        
+                latent_vars_embedded_seizure = np.copy(latent_vars)
+            latent_vars_embedded = np.concatenate([latent_vars_embedded_seizure], 0)
+            np.save(results_save_dir + '/latent_tsne_l_{}_input_{}_lr_{}.npy'.format(latent_dim, img_size, learning_rate), latent_vars_embedded)
+            print("Latent space matrix reduced shape:", latent_vars_embedded.shape)
+        else:
+            latent_vars_embedded = np.load(results_save_dir + '/latent_tsne_l_{}_input_{}_lr_{}.npy'.
+                                           format(latent_dim, img_size, learning_rate))
+    
         # Plot 3D latent space w.r.t. only categories
         plt.figure()
         _, ax = plt.subplots(1, 3)
