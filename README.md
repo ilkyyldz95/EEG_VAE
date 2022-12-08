@@ -10,4 +10,4 @@ Please use the `pytorch_env.yml` file to install dependencies.
 
 `l1_VAE_xxx` files perform training and testing for each dataset `xxx` out of MIT, UPenn and TUH.
 
-`cluster_raw` file runs clustering competing methods. 
+`cluster_raw` and `GAN` files run clustering and GAN (You et al., (2020)) competing methods, respectively, while GAN did not converge. 
