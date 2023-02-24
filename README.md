@@ -6,7 +6,7 @@ I. Yıldız, R. Garner, M. Lai, D. Duncan, “Unsupervised Seizure Identificatio
 
 Please use the `pytorch_env.yml` file to install dependencies.
 
-`read_eeg_xxx` files perform preprocessing for each dataset `xxx` out of MIT, UPenn and TUH.
+`read_eeg_xxx` files perform preprocessing for each dataset `xxx` out of MIT, UPenn and TUH. Please use 2.0 for newer versions of TUH (2023 and later). 
 
 `l1_VAE_xxx` files perform training and testing for each dataset `xxx` out of MIT, UPenn and TUH.
 
